@@ -12,3 +12,10 @@ class_name = "RateLimitDurable"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RateLimitDurable"]
+
+[observability]
+[observability.logs]
+enabled = false
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
