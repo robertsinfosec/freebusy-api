@@ -60,3 +60,4 @@ curl -i http://localhost:8787/freebusy
 - Allowed CORS origins: `https://freebusy.robertsinfosec.com`, `http://localhost:5173`.
 - Times without a `Z` or `TZID` are treated as UTC. If a `TZID` is present, it is logged and treated as UTC (minimal dependency approach).
 - Responses are always UTC and include merged/adjacent busy blocks only.
+
