@@ -11,7 +11,7 @@ interface CachedData {
 const CACHE_TTL_MS = 60_000;
 const ALLOWED_ORIGINS = new Set([
   "https://freebusy.robertsinfosec.com",
-  "http://localhost:5173",
+  "http://localhost:5000",
 ]);
 
 let cached: CachedData | null = null;
@@ -47,11 +47,28 @@ function jsonResponse(request: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
+function redactUrl(secretUrl: string): string {
+  try {
+    const url = new URL(secretUrl);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length > 0) {
+      parts[parts.length - 1] = "***";
+    }
+    const redactedPath = parts.length ? `/${parts.join("/")}` : "/";
+    return `${url.origin}${redactedPath}`;
+  } catch {
+    return "<invalid-url>";
+  }
+}
+
 async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>> {
   const now = Date.now();
   if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
     return cached.busy;
   }
+
+  const target = redactUrl(env.FREEBUSY_ICAL_URL);
+  console.info("[freebusy] fetching upstream iCal", { target });
 
   const res = await fetch(env.FREEBUSY_ICAL_URL, {
     headers: {
@@ -59,6 +76,7 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
     },
   });
 
+  console.info("[freebusy] upstream response", { target, status: res.status, ok: res.ok });
   if (!res.ok) {
     throw new Error("upstream_fetch_failed");
   }
@@ -69,7 +87,15 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
   }
 
   const text = await res.text();
-  const busy = parseFreeBusy(text, (msg) => console.warn(msg));
+  const diagnostics = {
+    bytes: text.length,
+    hasVfreebusy: /BEGIN:VFREEBUSY/i.test(text),
+    freebusyTokens: (text.match(/FREEBUSY/gi) || []).length,
+  };
+  console.info("[freebusy] upstream ical diagnostics", { target, ...diagnostics });
+
+  const busy = parseFreeBusy(text, (msg) => console.warn("[freebusy] parse warning", msg));
+  console.info("[freebusy] parsed busy blocks", { count: busy.length });
   cached = { fetchedAt: now, busy };
   return busy;
 }

@@ -39,7 +39,7 @@ describe("parseFreeBusy", () => {
     expect(blocks[0].start.toISOString()).toBe("2025-12-19T14:00:00.000Z");
     expect(blocks[0].end.toISOString()).toBe("2025-12-19T15:00:00.000Z");
     expect(blocks[1].end.getTime() - blocks[1].start.getTime()).toBe(30 * 60 * 1000);
-    expect(blocks[2].start.toISOString()).toBe("2025-12-21T09:00:00.000Z");
+    expect(blocks[2].start.toISOString()).toBe("2025-12-21T14:00:00.000Z");
   });
 
   it("ignores blocks outside VFREEBUSY", () => {
@@ -51,5 +51,65 @@ describe("parseFreeBusy", () => {
 
     const blocks = parseFreeBusy(ical, warn);
     expect(blocks).toHaveLength(0);
+  });
+
+  it("parses VEVENT all-day and duration fallbacks", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART;VALUE=DATE:20251224",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "DTSTART:20251225T100000Z",
+      "DURATION:PT2H",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warn);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].start.toISOString()).toBe("2025-12-24T00:00:00.000Z");
+    expect(blocks[0].end.toISOString()).toBe("2025-12-25T00:00:00.000Z");
+    expect(blocks[1].start.toISOString()).toBe("2025-12-25T10:00:00.000Z");
+    expect(blocks[1].end.toISOString()).toBe("2025-12-25T12:00:00.000Z");
+  });
+
+  it("parses VEVENT with TZID and converts to UTC", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART;TZID=America/New_York:20251224T120000",
+      "DTEND;TZID=America/New_York:20251224T130000",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warn);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].start.toISOString()).toBe("2025-12-24T17:00:00.000Z");
+    expect(blocks[0].end.toISOString()).toBe("2025-12-24T18:00:00.000Z");
+  });
+
+  it("parses VEVENT all-day with implicit end", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART;VALUE=DATE:20251224",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warn);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].start.toISOString()).toBe("2025-12-24T00:00:00.000Z");
+    expect(blocks[0].end.toISOString()).toBe("2025-12-25T00:00:00.000Z");
+  });
+
+  it("parses VEVENT with TZID and converts to UTC", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART;TZID=America/New_York:20251224T120000",
+      "DTEND;TZID=America/New_York:20251224T130000",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warn);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].start.toISOString()).toBe("2025-12-24T17:00:00.000Z");
+    expect(blocks[0].end.toISOString()).toBe("2025-12-24T18:00:00.000Z");
   });
 });

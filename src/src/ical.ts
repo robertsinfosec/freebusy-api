@@ -1,5 +1,7 @@
 import { BusyBlock } from "./freebusy";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export function unfoldLines(raw: string): string[] {
   const lines = raw.split(/\r?\n/);
   const unfolded: string[] = [];
@@ -14,29 +16,66 @@ export function unfoldLines(raw: string): string[] {
   return unfolded;
 }
 
-function warnForTZID(tzid: string | undefined, warn: (msg: string) => void) {
-  if (tzid) {
-    warn(`TZID=${tzid} present; treating as UTC`);
-  }
+function getOffsetMinutes(date: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(date);
+
+  const lookup = Object.fromEntries(
+    parts
+      .filter((p) => p.type !== "literal")
+      .map((p) => [p.type, parseInt(p.value, 10)])
+  ) as Record<string, number>;
+
+  const asUTC = Date.UTC(
+    lookup.year,
+    (lookup.month ?? 1) - 1,
+    lookup.day ?? 1,
+    lookup.hour ?? 0,
+    lookup.minute ?? 0,
+    lookup.second ?? 0
+  );
+
+  return (asUTC - date.getTime()) / 60000;
 }
 
-function parseICalDate(value: string, tzid: string | undefined, warn: (msg: string) => void): Date | null {
-  // Format: YYYYMMDDTHHMMSSZ? or YYYYMMDD
-  const dateTimeMatch = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/);
-  if (dateTimeMatch) {
-    const [, y, mo, d, h, mi, s, z] = dateTimeMatch;
-    const iso = `${y}-${mo}-${d}T${h}:${mi}:${s}Z`;
-    if (!z && tzid) warnForTZID(tzid, warn);
-    return new Date(iso);
+function parseICalDate(value: string, tzid: string | undefined, isDateOnly: boolean, warn: (msg: string) => void): Date | null {
+  const dateOnly = isDateOnly || !value.includes("T");
+
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
+  if (!match) return null;
+  const [, y, mo, d, h = "00", mi = "00", s = "00", z] = match;
+
+  const year = Number(y);
+  const month = Number(mo) - 1;
+  const day = Number(d);
+  const hour = dateOnly ? 0 : Number(h);
+  const minute = dateOnly ? 0 : Number(mi);
+  const second = dateOnly ? 0 : Number(s);
+
+  if (z) {
+    return new Date(Date.UTC(year, month, day, hour, minute, second));
   }
-  const dateMatch = value.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (dateMatch) {
-    const [, y, mo, d] = dateMatch;
-    const iso = `${y}-${mo}-${d}T00:00:00Z`;
-    if (tzid) warnForTZID(tzid, warn);
-    return new Date(iso);
+
+  if (tzid) {
+    try {
+      const utcMillis = Date.UTC(year, month, day, hour, minute, second);
+      const offsetMinutes = getOffsetMinutes(new Date(utcMillis), tzid);
+      return new Date(utcMillis - offsetMinutes * 60_000);
+    } catch (err) {
+      warn(`Failed TZ conversion for ${tzid}: ${String(err)}`);
+    }
   }
-  return null;
+
+  // Fallback: assume UTC when no timezone info.
+  return new Date(Date.UTC(year, month, day, hour, minute, second));
 }
 
 export function parseDuration(value: string): number {
@@ -50,11 +89,11 @@ export function parseDuration(value: string): number {
   return (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
 }
 
-function parsePeriod(part: string, tzid: string | undefined, warn: (msg: string) => void): BusyBlock | null {
+function parseFreeBusyPeriod(part: string, tzid: string | undefined, warn: (msg: string) => void): BusyBlock | null {
   const [startRaw, endOrDurationRaw] = part.split("/");
   if (!startRaw || !endOrDurationRaw) return null;
 
-  const start = parseICalDate(startRaw, tzid, warn);
+  const start = parseICalDate(startRaw, tzid, false, warn);
   if (!start) return null;
 
   const durationMs = parseDuration(endOrDurationRaw);
@@ -62,27 +101,27 @@ function parsePeriod(part: string, tzid: string | undefined, warn: (msg: string)
     return { start, end: new Date(start.getTime() + durationMs) };
   }
 
-  const end = parseICalDate(endOrDurationRaw, tzid, warn);
+  const end = parseICalDate(endOrDurationRaw, tzid, false, warn);
   if (!end) return null;
   return { start, end };
 }
 
-export function parseFreeBusy(icalText: string, warn: (msg: string) => void = () => {}): BusyBlock[] {
-  const unfolded = unfoldLines(icalText);
+function parseFreeBusyComponents(unfolded: string[], warn: (msg: string) => void): BusyBlock[] {
   const busy: BusyBlock[] = [];
   let inComponent = false;
 
   for (const line of unfolded) {
-    if (line.toUpperCase() === "BEGIN:VFREEBUSY") {
+    const upper = line.toUpperCase();
+    if (upper === "BEGIN:VFREEBUSY") {
       inComponent = true;
       continue;
     }
-    if (line.toUpperCase() === "END:VFREEBUSY") {
+    if (upper === "END:VFREEBUSY") {
       inComponent = false;
       continue;
     }
     if (!inComponent) continue;
-    if (!line.toUpperCase().startsWith("FREEBUSY")) continue;
+    if (!upper.startsWith("FREEBUSY")) continue;
 
     const [propPart, valuePart] = line.split(/:(.+)/, 2);
     if (!valuePart) continue;
@@ -93,7 +132,7 @@ export function parseFreeBusy(icalText: string, warn: (msg: string) => void = ()
 
     const periods = valuePart.split(",");
     for (const periodPart of periods) {
-      const parsed = parsePeriod(periodPart, tzid, warn);
+      const parsed = parseFreeBusyPeriod(periodPart, tzid, warn);
       if (parsed && parsed.end > parsed.start) {
         busy.push(parsed);
       }
@@ -101,4 +140,85 @@ export function parseFreeBusy(icalText: string, warn: (msg: string) => void = ()
   }
 
   return busy;
+}
+
+function parseEventComponents(unfolded: string[], warn: (msg: string) => void): BusyBlock[] {
+  const events: BusyBlock[] = [];
+  let inEvent = false;
+  let current: { start?: Date; end?: Date; startIsDateOnly?: boolean } = {};
+  let currentDuration: number | undefined;
+
+  for (const line of unfolded) {
+    const upper = line.toUpperCase();
+
+    if (upper === "BEGIN:VEVENT") {
+      inEvent = true;
+      current = {};
+      currentDuration = undefined;
+      continue;
+    }
+    if (upper === "END:VEVENT") {
+      if (inEvent && current.start) {
+        const isAllDay = Boolean(current.startIsDateOnly);
+        const durationMs = currentDuration;
+        const defaultEnd = isAllDay
+          ? new Date(current.start.getTime() + DAY_MS)
+          : new Date(current.start.getTime() + 60 * 60 * 1000);
+        const endValue = current.end
+          ? current.end
+          : typeof durationMs === "number" && !Number.isNaN(durationMs)
+            ? new Date(current.start.getTime() + durationMs)
+            : defaultEnd;
+
+        const end = isAllDay && endValue.getTime() === current.start.getTime()
+          ? new Date(current.start.getTime() + DAY_MS)
+          : endValue;
+
+        if (end > current.start) {
+          events.push({ start: current.start, end });
+        }
+      }
+      inEvent = false;
+      currentDuration = undefined;
+      continue;
+    }
+    if (!inEvent) continue;
+
+    if (upper.startsWith("DTSTART")) {
+      const tzidMatch = line.match(/TZID=([^;:]+)/);
+      const isDateOnly = upper.includes("VALUE=DATE") || !line.includes("T");
+      const dateMatch = line.match(/[:;](\d{8}(T\d{6}Z?)?)/);
+      if (dateMatch) {
+        const parsed = parseICalDate(dateMatch[1], tzidMatch?.[1], isDateOnly, warn);
+        if (parsed) {
+          current.start = parsed;
+          current.startIsDateOnly = isDateOnly;
+        }
+      }
+    } else if (upper.startsWith("DTEND")) {
+      const tzidMatch = line.match(/TZID=([^;:]+)/);
+      const isDateOnly = upper.includes("VALUE=DATE") || !line.includes("T");
+      const dateMatch = line.match(/[:;](\d{8}(T\d{6}Z?)?)/);
+      if (dateMatch) {
+        const parsed = parseICalDate(dateMatch[1], tzidMatch?.[1], isDateOnly, warn);
+        if (parsed) {
+          current.end = parsed;
+        }
+      }
+    } else if (upper.startsWith("DURATION")) {
+      const dur = parseDuration(line.split(/:(.+)/, 2)[1] ?? "");
+      if (!Number.isNaN(dur)) {
+        currentDuration = dur;
+      }
+    }
+  }
+
+  return events;
+}
+
+export function parseFreeBusy(icalText: string, warn: (msg: string) => void = () => {}): BusyBlock[] {
+  const unfolded = unfoldLines(icalText);
+  const busyFromFreeBusy = parseFreeBusyComponents(unfolded, warn);
+  const busyFromEvents = parseEventComponents(unfolded, warn);
+  return [...busyFromFreeBusy, ...busyFromEvents];
 }

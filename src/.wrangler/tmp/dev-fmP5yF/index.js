@@ -1,7 +1,7 @@
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
-// .wrangler/tmp/bundle-3YCTpM/strip-cf-connecting-ip-header.js
+// .wrangler/tmp/bundle-izQrV7/strip-cf-connecting-ip-header.js
 function stripCfConnectingIPHeader(input, init) {
   const request = new Request(input, init);
   request.headers.delete("CF-Connecting-IP");
@@ -17,6 +17,7 @@ globalThis.fetch = new Proxy(globalThis.fetch, {
 });
 
 // src/ical.ts
+var DAY_MS = 24 * 60 * 60 * 1e3;
 function unfoldLines(raw) {
   const lines = raw.split(/\r?\n/);
   const unfolded = [];
@@ -32,30 +33,56 @@ function unfoldLines(raw) {
   return unfolded;
 }
 __name(unfoldLines, "unfoldLines");
-function warnForTZID(tzid, warn) {
-  if (tzid) {
-    warn(`TZID=${tzid} present; treating as UTC`);
-  }
+function getOffsetMinutes(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).formatToParts(date);
+  const lookup = Object.fromEntries(
+    parts.filter((p) => p.type !== "literal").map((p) => [p.type, parseInt(p.value, 10)])
+  );
+  const asUTC = Date.UTC(
+    lookup.year,
+    (lookup.month ?? 1) - 1,
+    lookup.day ?? 1,
+    lookup.hour ?? 0,
+    lookup.minute ?? 0,
+    lookup.second ?? 0
+  );
+  return (asUTC - date.getTime()) / 6e4;
 }
-__name(warnForTZID, "warnForTZID");
-function parseICalDate(value, tzid, warn) {
-  const dateTimeMatch = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/);
-  if (dateTimeMatch) {
-    const [, y, mo, d, h, mi, s, z] = dateTimeMatch;
-    const iso = `${y}-${mo}-${d}T${h}:${mi}:${s}Z`;
-    if (!z && tzid)
-      warnForTZID(tzid, warn);
-    return new Date(iso);
+__name(getOffsetMinutes, "getOffsetMinutes");
+function parseICalDate(value, tzid, isDateOnly, warn) {
+  const dateOnly = isDateOnly || !value.includes("T");
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
+  if (!match)
+    return null;
+  const [, y, mo, d, h = "00", mi = "00", s = "00", z] = match;
+  const year = Number(y);
+  const month = Number(mo) - 1;
+  const day = Number(d);
+  const hour = dateOnly ? 0 : Number(h);
+  const minute = dateOnly ? 0 : Number(mi);
+  const second = dateOnly ? 0 : Number(s);
+  if (z) {
+    return new Date(Date.UTC(year, month, day, hour, minute, second));
   }
-  const dateMatch = value.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (dateMatch) {
-    const [, y, mo, d] = dateMatch;
-    const iso = `${y}-${mo}-${d}T00:00:00Z`;
-    if (tzid)
-      warnForTZID(tzid, warn);
-    return new Date(iso);
+  if (tzid) {
+    try {
+      const utcMillis = Date.UTC(year, month, day, hour, minute, second);
+      const offsetMinutes = getOffsetMinutes(new Date(utcMillis), tzid);
+      return new Date(utcMillis - offsetMinutes * 6e4);
+    } catch (err) {
+      warn(`Failed TZ conversion for ${tzid}: ${String(err)}`);
+    }
   }
-  return null;
+  return new Date(Date.UTC(year, month, day, hour, minute, second));
 }
 __name(parseICalDate, "parseICalDate");
 function parseDuration(value) {
@@ -70,40 +97,39 @@ function parseDuration(value) {
   return (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1e3;
 }
 __name(parseDuration, "parseDuration");
-function parsePeriod(part, tzid, warn) {
+function parseFreeBusyPeriod(part, tzid, warn) {
   const [startRaw, endOrDurationRaw] = part.split("/");
   if (!startRaw || !endOrDurationRaw)
     return null;
-  const start = parseICalDate(startRaw, tzid, warn);
+  const start = parseICalDate(startRaw, tzid, false, warn);
   if (!start)
     return null;
   const durationMs = parseDuration(endOrDurationRaw);
   if (!Number.isNaN(durationMs)) {
     return { start, end: new Date(start.getTime() + durationMs) };
   }
-  const end = parseICalDate(endOrDurationRaw, tzid, warn);
+  const end = parseICalDate(endOrDurationRaw, tzid, false, warn);
   if (!end)
     return null;
   return { start, end };
 }
-__name(parsePeriod, "parsePeriod");
-function parseFreeBusy(icalText, warn = () => {
-}) {
-  const unfolded = unfoldLines(icalText);
+__name(parseFreeBusyPeriod, "parseFreeBusyPeriod");
+function parseFreeBusyComponents(unfolded, warn) {
   const busy = [];
   let inComponent = false;
   for (const line of unfolded) {
-    if (line.toUpperCase() === "BEGIN:VFREEBUSY") {
+    const upper = line.toUpperCase();
+    if (upper === "BEGIN:VFREEBUSY") {
       inComponent = true;
       continue;
     }
-    if (line.toUpperCase() === "END:VFREEBUSY") {
+    if (upper === "END:VFREEBUSY") {
       inComponent = false;
       continue;
     }
     if (!inComponent)
       continue;
-    if (!line.toUpperCase().startsWith("FREEBUSY"))
+    if (!upper.startsWith("FREEBUSY"))
       continue;
     const [propPart, valuePart] = line.split(/:(.+)/, 2);
     if (!valuePart)
@@ -113,13 +139,82 @@ function parseFreeBusy(icalText, warn = () => {
     const tzid = tzidParam ? tzidParam.split("=")[1] : void 0;
     const periods = valuePart.split(",");
     for (const periodPart of periods) {
-      const parsed = parsePeriod(periodPart, tzid, warn);
+      const parsed = parseFreeBusyPeriod(periodPart, tzid, warn);
       if (parsed && parsed.end > parsed.start) {
         busy.push(parsed);
       }
     }
   }
   return busy;
+}
+__name(parseFreeBusyComponents, "parseFreeBusyComponents");
+function parseEventComponents(unfolded, warn) {
+  const events = [];
+  let inEvent = false;
+  let current = {};
+  let currentDuration;
+  for (const line of unfolded) {
+    const upper = line.toUpperCase();
+    if (upper === "BEGIN:VEVENT") {
+      inEvent = true;
+      current = {};
+      currentDuration = void 0;
+      continue;
+    }
+    if (upper === "END:VEVENT") {
+      if (inEvent && current.start) {
+        const isAllDay = Boolean(current.startIsDateOnly);
+        const durationMs = currentDuration;
+        const defaultEnd = isAllDay ? new Date(current.start.getTime() + DAY_MS) : new Date(current.start.getTime() + 60 * 60 * 1e3);
+        const endValue = current.end ? current.end : typeof durationMs === "number" && !Number.isNaN(durationMs) ? new Date(current.start.getTime() + durationMs) : defaultEnd;
+        const end = isAllDay && endValue.getTime() === current.start.getTime() ? new Date(current.start.getTime() + DAY_MS) : endValue;
+        if (end > current.start) {
+          events.push({ start: current.start, end });
+        }
+      }
+      inEvent = false;
+      currentDuration = void 0;
+      continue;
+    }
+    if (!inEvent)
+      continue;
+    if (upper.startsWith("DTSTART")) {
+      const tzidMatch = line.match(/TZID=([^;:]+)/);
+      const isDateOnly = upper.includes("VALUE=DATE") || !line.includes("T");
+      const dateMatch = line.match(/[:;](\d{8}(T\d{6}Z?)?)/);
+      if (dateMatch) {
+        const parsed = parseICalDate(dateMatch[1], tzidMatch?.[1], isDateOnly, warn);
+        if (parsed) {
+          current.start = parsed;
+          current.startIsDateOnly = isDateOnly;
+        }
+      }
+    } else if (upper.startsWith("DTEND")) {
+      const tzidMatch = line.match(/TZID=([^;:]+)/);
+      const isDateOnly = upper.includes("VALUE=DATE") || !line.includes("T");
+      const dateMatch = line.match(/[:;](\d{8}(T\d{6}Z?)?)/);
+      if (dateMatch) {
+        const parsed = parseICalDate(dateMatch[1], tzidMatch?.[1], isDateOnly, warn);
+        if (parsed) {
+          current.end = parsed;
+        }
+      }
+    } else if (upper.startsWith("DURATION")) {
+      const dur = parseDuration(line.split(/:(.+)/, 2)[1] ?? "");
+      if (!Number.isNaN(dur)) {
+        currentDuration = dur;
+      }
+    }
+  }
+  return events;
+}
+__name(parseEventComponents, "parseEventComponents");
+function parseFreeBusy(icalText, warn = () => {
+}) {
+  const unfolded = unfoldLines(icalText);
+  const busyFromFreeBusy = parseFreeBusyComponents(unfolded, warn);
+  const busyFromEvents = parseEventComponents(unfolded, warn);
+  return [...busyFromFreeBusy, ...busyFromEvents];
 }
 __name(parseFreeBusy, "parseFreeBusy");
 
@@ -259,7 +354,7 @@ __name(RateLimitDurable, "RateLimitDurable");
 var CACHE_TTL_MS = 6e4;
 var ALLOWED_ORIGINS = /* @__PURE__ */ new Set([
   "https://freebusy.robertsinfosec.com",
-  "http://localhost:5173"
+  "http://localhost:5000"
 ]);
 var cached = null;
 function baseHeaders() {
@@ -295,16 +390,33 @@ function jsonResponse(request, body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers });
 }
 __name(jsonResponse, "jsonResponse");
+function redactUrl(secretUrl) {
+  try {
+    const url = new URL(secretUrl);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length > 0) {
+      parts[parts.length - 1] = "***";
+    }
+    const redactedPath = parts.length ? `/${parts.join("/")}` : "/";
+    return `${url.origin}${redactedPath}`;
+  } catch {
+    return "<invalid-url>";
+  }
+}
+__name(redactUrl, "redactUrl");
 async function fetchUpstream(env) {
   const now = Date.now();
   if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
     return cached.busy;
   }
+  const target = redactUrl(env.FREEBUSY_ICAL_URL);
+  console.info("[freebusy] fetching upstream iCal", { target });
   const res = await fetch(env.FREEBUSY_ICAL_URL, {
     headers: {
       Accept: "text/calendar,text/plain"
     }
   });
+  console.info("[freebusy] upstream response", { target, status: res.status, ok: res.ok });
   if (!res.ok) {
     throw new Error("upstream_fetch_failed");
   }
@@ -313,7 +425,14 @@ async function fetchUpstream(env) {
     throw new Error("unexpected_content_type");
   }
   const text = await res.text();
-  const busy = parseFreeBusy(text, (msg) => console.warn(msg));
+  const diagnostics = {
+    bytes: text.length,
+    hasVfreebusy: /BEGIN:VFREEBUSY/i.test(text),
+    freebusyTokens: (text.match(/FREEBUSY/gi) || []).length
+  };
+  console.info("[freebusy] upstream ical diagnostics", { target, ...diagnostics });
+  const busy = parseFreeBusy(text, (msg) => console.warn("[freebusy] parse warning", msg));
+  console.info("[freebusy] parsed busy blocks", { count: busy.length });
   cached = { fetchedAt: now, busy };
   return busy;
 }
@@ -433,7 +552,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-3YCTpM/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-izQrV7/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -465,7 +584,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-3YCTpM/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-izQrV7/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
