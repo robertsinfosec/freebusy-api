@@ -1,4 +1,4 @@
-name = "freebusy-api"
+name = "robertsinfosec-freebusy-api"
 main = "src/index.ts"
 compatibility_date = "2024-12-18"
 
@@ -11,4 +11,4 @@ class_name = "RateLimitDurable"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["RateLimitDurable"]
+new_sqlite_classes = ["RateLimitDurable"]
