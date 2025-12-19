@@ -2,6 +2,7 @@ export interface Env {
   FREEBUSY_ICAL_URL: string;
   RL_SALT: string;
   RATE_LIMITER: DurableObjectNamespace;
+  FREEBUSY_ENABLED?: string;
 }
 
 function isDurableObjectNamespace(value: unknown): value is DurableObjectNamespace {
@@ -28,4 +29,11 @@ export function validateEnv(env: Partial<Env>): Env {
   }
 
   return env as Env;
+}
+
+export function isFreeBusyEnabled(env: Partial<Env>): boolean {
+  const flag = env.FREEBUSY_ENABLED;
+  if (flag === undefined) return true;
+  const normalized = String(flag).trim().toLowerCase();
+  return normalized !== "false" && normalized !== "0" && normalized !== "off";
 }

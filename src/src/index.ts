@@ -1,6 +1,6 @@
 import { parseFreeBusy } from "./ical";
 import { buildWindow, clipAndMerge, toResponseBlocks } from "./freebusy";
-import { Env, validateEnv } from "./env";
+import { Env, isFreeBusyEnabled, validateEnv } from "./env";
 import { enforceRateLimit } from "./rateLimit";
 
 interface CachedData {
@@ -177,6 +177,10 @@ export default {
     }
 
     if (pathname === "/freebusy" && request.method === "GET") {
+      if (!isFreeBusyEnabled(validatedEnv)) {
+        console.info("[freebusy] disabled via FREEBUSY_ENABLED flag");
+        return jsonResponse(request, { error: "disabled" }, 503);
+      }
       return handleFreeBusy(request, validatedEnv);
     }
 
