@@ -1,15 +1,37 @@
 import { Env } from "./env";
 
-const WINDOW_MS = 5 * 60 * 1000;
-const LIMIT = 60;
 const DO_NAME = "rate-limiter";
+const RATE_LIMIT_DO_TIMEOUT_MS = 3_000;
+
+export interface RateLimitScopeOutcome {
+  label: string;
+  allowed: boolean;
+  remaining: number;
+  reset: number;
+  limit: number;
+  windowMs: number;
+}
 
 export interface RateLimitOutcome {
   allowed: boolean;
   remaining: number;
   reset: number;
+  scopes: Record<string, RateLimitScopeOutcome>;
 }
 
+export interface RateLimitPair {
+  windowMs: number;
+  limit: number;
+}
+
+export interface RateLimitConfig {
+  perIp: RateLimitPair;
+  global?: RateLimitPair;
+}
+
+/**
+ * Produces a stable hash of IP + salt to avoid leaking caller IPs to storage.
+ */
 export async function hashIp(ip: string, salt: string): Promise<string> {
   const data = new TextEncoder().encode(`${ip}${salt}`);
   const digest = await crypto.subtle.digest("SHA-256", data);
@@ -19,25 +41,85 @@ export async function hashIp(ip: string, salt: string): Promise<string> {
     .join("");
 }
 
-export async function enforceRateLimit(env: Env, ip: string): Promise<RateLimitOutcome> {
-  const key = await hashIp(ip, env.RL_SALT);
+/**
+ * Calls the Durable Object rate limiter for the provided scopes.
+ */
+export async function enforceRateLimit(env: Env, ip: string, config: RateLimitConfig): Promise<RateLimitOutcome> {
+  const scopes: { label: string; key: string; limit: number; windowMs: number }[] = [];
+
+  const ipKey = await hashIp(ip, env.RL_SALT);
+  scopes.push({ label: "perIp", key: ipKey, limit: config.perIp.limit, windowMs: config.perIp.windowMs });
+
+  if (config.global) {
+    const globalKey = await hashIp("global", env.RL_SALT);
+    scopes.push({ label: "global", key: globalKey, limit: config.global.limit, windowMs: config.global.windowMs });
+  }
+
   const id = env.RATE_LIMITER.idFromName(DO_NAME);
   const stub = env.RATE_LIMITER.get(id);
   const res = await stub.fetch("https://rate-limit/", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key }),
+    body: JSON.stringify({ scopes }),
+    signal: AbortSignal.timeout(RATE_LIMIT_DO_TIMEOUT_MS),
   });
 
   if (!res.ok) {
-    throw new Error("rate_limit_error");
+    throw new Error(`rate_limit_error: ${res.status}`);
   }
 
-  const data = (await res.json()) as Partial<RateLimitOutcome>;
+  let data: { allowed?: boolean; scopes?: RateLimitScopeOutcome[] };
+  try {
+    data = (await res.json()) as { allowed?: boolean; scopes?: RateLimitScopeOutcome[] };
+  } catch (err) {
+    throw new Error(`rate_limit_error: invalid response: ${String(err)}`);
+  }
+
+  const scopeOutcomesArray: RateLimitScopeOutcome[] = Array.isArray(data.scopes) ? data.scopes : [];
+  const scopesMap: Record<string, RateLimitScopeOutcome> = {};
+  for (const scope of scopeOutcomesArray) {
+    if (!scope || !scope.label) {
+      throw new Error("rate_limit_error: missing scope label");
+    }
+    if (!Number.isFinite(scope.limit) || scope.limit! <= 0) {
+      throw new Error("rate_limit_error: invalid scope limit");
+    }
+    if (!Number.isFinite(scope.windowMs) || scope.windowMs! <= 0) {
+      throw new Error("rate_limit_error: invalid scope windowMs");
+    }
+    if (!Number.isFinite(scope.remaining) || scope.remaining! < 0) {
+      throw new Error("rate_limit_error: invalid scope remaining");
+    }
+    if (!Number.isFinite(scope.reset) || scope.reset! <= 0) {
+      throw new Error("rate_limit_error: invalid scope reset");
+    }
+
+    scopesMap[scope.label] = {
+      label: scope.label,
+      allowed: Boolean(scope.allowed),
+      remaining: scope.remaining as number,
+      reset: scope.reset as number,
+      limit: scope.limit as number,
+      windowMs: scope.windowMs as number,
+    };
+  }
+
+  if (!scopeOutcomesArray.length) {
+    throw new Error("rate_limit_error: empty scope outcomes");
+  }
+
+  const overallAllowed = data.allowed ?? scopeOutcomesArray.every((s) => Boolean(s?.allowed));
+  const remainingValues = Object.values(scopesMap).map((s) => s.remaining);
+  const resetValues = Object.values(scopesMap).map((s) => s.reset);
+
+  const aggregatedRemaining = remainingValues.length ? Math.min(...remainingValues) : 0;
+  const aggregatedReset = resetValues.length ? Math.max(...resetValues) : Date.now() + DEFAULT_WINDOW_MS;
+
   return {
-    allowed: Boolean(data.allowed),
-    remaining: Number.isFinite(data.remaining) ? (data.remaining as number) : 0,
-    reset: Number.isFinite(data.reset) ? (data.reset as number) : Date.now() + WINDOW_MS,
+    allowed: Boolean(overallAllowed),
+    remaining: aggregatedRemaining,
+    reset: aggregatedReset,
+    scopes: scopesMap,
   };
 }
 
@@ -58,32 +140,75 @@ export class RateLimitDurable {
       return new Response("method not allowed", { status: 405 });
     }
 
-    let body: { key?: string };
+    let body: { scopes?: { key?: string; label?: string; limit?: number; windowMs?: number }[] } | { key?: string; limit?: number; windowMs?: number };
     try {
-      body = (await request.json()) as { key?: string };
+      body = (await request.json()) as { scopes?: { key?: string; label?: string; limit?: number; windowMs?: number }[] };
     } catch {
       return Response.json({ error: "bad_request" }, { status: 400 });
     }
 
-    if (!body.key || typeof body.key !== "string") {
+    // Backward-compatible single-scope payload
+    const scopes = Array.isArray((body as { scopes?: unknown }).scopes)
+      ? ((body as { scopes?: { key?: string; label?: string; limit?: number; windowMs?: number }[] }).scopes as {
+          key?: string;
+          label?: string;
+          limit?: number;
+          windowMs?: number;
+        }[])
+      : (body as { key?: string; limit?: number; windowMs?: number }).key
+        ? [
+            {
+              key: (body as { key?: string }).key,
+              label: "default",
+              limit: (body as { limit?: number }).limit,
+              windowMs: (body as { windowMs?: number }).windowMs,
+            },
+          ]
+        : [];
+
+    if (!scopes.length || scopes.some((s) => !s.key || typeof s.key !== "string")) {
       return Response.json({ error: "bad_request" }, { status: 400 });
     }
 
     const now = Date.now();
-    const current = (await this.storage.get<StoredCounter>(body.key)) ?? { count: 0, windowStart: now };
+    const results: RateLimitScopeOutcome[] = [];
 
-    let { count, windowStart } = current;
-    if (now - windowStart >= WINDOW_MS) {
-      count = 0;
-      windowStart = now;
+    for (const scope of scopes) {
+      if (!Number.isFinite(scope.limit) || (scope.limit as number) <= 0) {
+        return Response.json({ error: "bad_request" }, { status: 400 });
+      }
+      if (!Number.isFinite(scope.windowMs) || (scope.windowMs as number) <= 0) {
+        return Response.json({ error: "bad_request" }, { status: 400 });
+      }
+
+      const parsedLimit = scope.limit as number;
+      const parsedWindow = scope.windowMs as number;
+
+      const current = (await this.storage.get<StoredCounter>(scope.key as string)) ?? { count: 0, windowStart: now };
+
+      let { count, windowStart } = current;
+      if (now - windowStart >= parsedWindow) {
+        count = 0;
+        windowStart = now;
+      }
+
+      count += 1;
+      const allowed = count <= parsedLimit;
+      const remaining = allowed ? parsedLimit - count : 0;
+
+      await this.storage.put(scope.key as string, { count, windowStart });
+
+      results.push({
+        label: scope.label || "default",
+        allowed,
+        remaining,
+        reset: windowStart + parsedWindow,
+        limit: parsedLimit,
+        windowMs: parsedWindow,
+      });
     }
 
-    count += 1;
-    const allowed = count <= LIMIT;
-    const remaining = allowed ? LIMIT - count : 0;
-
-    await this.storage.put(body.key, { count, windowStart });
-
-    return Response.json({ allowed, remaining, reset: windowStart + WINDOW_MS });
+    const overallAllowed = results.every((r) => r.allowed);
+    return Response.json({ allowed: overallAllowed, scopes: results });
   }
 }

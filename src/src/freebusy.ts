@@ -3,15 +3,21 @@ export interface BusyBlock {
   end: Date;
 }
 
-const MINUTE_MS = 60_000;
-const WINDOW_DAYS = 28;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function buildWindow(now: Date = new Date()): { windowStart: Date; windowEnd: Date } {
-  const roundedStart = new Date(Math.floor(now.getTime() / MINUTE_MS) * MINUTE_MS);
-  const windowEnd = new Date(roundedStart.getTime() + WINDOW_DAYS * 24 * 60 * MINUTE_MS);
-  return { windowStart: roundedStart, windowEnd };
+/**
+ * Returns a deterministic window starting at 00:00:00 UTC today and extending the provided weeks.
+ */
+export function buildWindow(forwardWeeks: number, now: Date = new Date()): { windowStart: Date; windowEnd: Date } {
+  const startOfDayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const totalDays = forwardWeeks * 7;
+  const windowEnd = new Date(startOfDayUtc.getTime() + totalDays * DAY_MS - 1); // 23:59:59.999 of last day
+  return { windowStart: startOfDayUtc, windowEnd };
 }
 
+/**
+ * Trims busy blocks to the window and merges overlapping/contiguous entries.
+ */
 export function clipAndMerge(blocks: BusyBlock[], windowStart: Date, windowEnd: Date): BusyBlock[] {
   const relevant = blocks
     .map((block) => {
@@ -47,6 +53,9 @@ export function clipAndMerge(blocks: BusyBlock[], windowStart: Date, windowEnd: 
   return merged;
 }
 
+/**
+ * Converts busy blocks to ISO8601 strings for responses.
+ */
 export function toResponseBlocks(blocks: BusyBlock[]): { start: string; end: string }[] {
   return blocks.map((block) => ({ start: block.start.toISOString(), end: block.end.toISOString() }));
 }

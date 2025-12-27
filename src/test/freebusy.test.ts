@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { buildWindow, clipAndMerge, toResponseBlocks } from "../src/freebusy";
 
 describe("buildWindow", () => {
-  it("rounds down to the nearest minute and extends 28 days", () => {
+  it("starts at midnight UTC today and extends the provided weeks", () => {
     const now = new Date("2025-01-01T12:00:45Z");
-    const { windowStart, windowEnd } = buildWindow(now);
-    expect(windowStart.toISOString()).toBe("2025-01-01T12:00:00.000Z");
-    expect(windowEnd.toISOString()).toBe("2025-01-29T12:00:00.000Z");
+    const { windowStart, windowEnd } = buildWindow(4, now);
+    expect(windowStart.toISOString()).toBe("2025-01-01T00:00:00.000Z");
+    expect(windowEnd.toISOString()).toBe("2025-01-28T23:59:59.999Z");
   });
 });
 

@@ -1,0 +1,323 @@
+openapi: 3.1.0
+info:
+  title: Freebusy API
+  version: "1.0.0"
+  description: |
+    Cloudflare Worker that proxies a private calendar free/busy iCal feed, strips sensitive data, and returns a
+    normalized UTC busy window for a configurable forward window (in weeks) starting at 00:00:00 UTC today. All
+    responses are JSON, CORS is restricted to an allowlist configured via environment, and requests are rate
+    limited via a Durable Object. No authentication is required; this spec documents behaviors, error codes, and
+    response shapes in detail for integrators.
+  termsOfService: https://freebusy.robertsinfosec.com/terms
+  contact:
+    name: Robert's InfoSec
+    url: https://freebusy.robertsinfosec.com
+    email: freebusy@robertsinfosec.com
+servers:
+  - url: https://freebusy.robertsinfosec.com
+    description: Production deployment fronted by Cloudflare Workers
+  - url: http://localhost:8787
+    description: Local development via `wrangler dev`
+tags:
+  - name: health
+    description: Lightweight liveness and readiness probes
+  - name: freebusy
+    description: Free/busy data retrieval, normalization, and delivery
+  - name: misc
+    description: Catch-all and fallback routes
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Health check endpoint
+      description: |
+        Returns a simple JSON payload indicating the Worker is running. CORS is enforced; disallowed origins receive
+        `403 forbidden_origin`. This endpoint does not fetch upstream data and is safe for uptime probes.
+      operationId: getHealth
+      responses:
+        "200":
+          description: Worker is up and able to serve traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                ok: { value: { ok: true } }
+        "403":
+          description: Origin not allowed by CORS policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                forbidden_origin: { value: { error: "forbidden_origin" } }
+  /freebusy:
+    options:
+      tags: [freebusy]
+      summary: CORS preflight for /freebusy
+      description: Responds to preflight requests. Allowed origins receive 204 with CORS headers; all others receive 403.
+      operationId: optionsFreebusy
+      responses:
+        "204":
+          description: Origin allowed; no body is returned
+        "403":
+          description: Origin not allowed by CORS policy
+    get:
+      tags: [freebusy]
+      summary: Retrieve merged free/busy blocks for the configured forward window
+      description: |
+        Fetches a private iCal free/busy feed (VFREEBUSY and VEVENT), unfolds and parses the calendar data, merges
+        overlapping or adjacent busy intervals, normalizes all times to UTC, and clips results to the current window
+        (00:00:00 UTC today through the end of the configured forward window in weeks). Responses are cached for 60
+        seconds to reduce upstream load. Upstream payloads larger than 1.5 MB are rejected with 502 to prevent
+        resource exhaustion.
+
+        The request is rate limited per hashed IP (using `CF-Connecting-IP` when present) via a Durable Object; if the
+        limit is exceeded, `429 rate_limited` is returned. CORS is restricted to an allowlist; disallowed origins receive
+        `403 forbidden_origin`. A feature flag (`FREEBUSY_ENABLED`) can disable the endpoint, returning `503 disabled`.
+      operationId: getFreebusy
+      responses:
+        "200":
+          description: Successfully returned normalized free/busy data in UTC
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FreeBusyResponse"
+              examples:
+                sample:
+                  value:
+                    generatedAt: "2024-01-15T12:00:00.000Z"
+                    window:
+                      start: "2024-01-15T00:00:00.000Z"
+                      end: "2024-02-11T23:59:59.999Z"
+                    timezone: "Etc/UTC"
+                    busy:
+                      - start: "2024-01-16T09:00:00.000Z"
+                        end: "2024-01-16T10:30:00.000Z"
+                      - start: "2024-01-17T14:00:00.000Z"
+                        end: "2024-01-17T15:00:00.000Z"
+                    rateLimit:
+                      nextAllowedAt: "2024-01-15T12:05:00.000Z"
+                      scopes:
+                        perIp:
+                          remaining: 0
+                          reset: "2024-01-15T12:05:00.000Z"
+                          limit: 60
+                          windowMs: 300000
+        "403":
+          description: Origin not allowed by CORS policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                forbidden_origin: { value: { error: "forbidden_origin" } }
+        "429":
+          description: Rate limit exceeded (per hashed IP within the 5 minute window)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RateLimitedErrorResponse"
+              examples:
+                rate_limited:
+                  value:
+                    error: "rate_limited"
+                    rateLimit:
+                      nextAllowedAt: "2024-01-15T12:05:00.000Z"
+                      scopes:
+                        perIp:
+                          remaining: 0
+                          reset: "2024-01-15T12:05:00.000Z"
+                          limit: 60
+                          windowMs: 300000
+        "502":
+          description: Upstream iCal fetch failed or parse/merge error occurred
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                upstream: { value: { error: "upstream" } }
+                parse: { value: { error: "parse" } }
+        "503":
+          description: Endpoint disabled via FREEBUSY_ENABLED flag
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                disabled: { value: { error: "disabled" } }
+        "500":
+          description: Environment validation failed (missing secrets or bindings)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                misconfigured: { value: { error: "misconfigured" } }
+  /{any}:
+    get:
+      tags: [misc]
+      summary: Fallback for unknown routes
+      description: Returns a JSON 404 error for any unmatched path or method.
+      operationId: fallback
+      responses:
+        "404":
+          description: Route not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not_found: { value: { error: "not_found" } }
+components:
+  schemas:
+    BusyBlock:
+      type: object
+      description: A normalized UTC busy interval derived from the upstream iCal free/busy data.
+      properties:
+        start:
+          type: string
+          format: date-time
+          description: ISO-8601 start time in UTC (inclusive) after clipping and merging.
+        end:
+          type: string
+          format: date-time
+          description: ISO-8601 end time in UTC (exclusive boundary in practice; always greater than start).
+      required: [start, end]
+      example:
+        start: "2024-01-16T09:00:00.000Z"
+        end: "2024-01-16T10:30:00.000Z"
+    Window:
+      type: object
+      description: The time window the Worker produces, starting at 00:00:00 UTC today and extending the configured forward window (in weeks) to 23:59:59.999 on the final day.
+      properties:
+        start:
+          type: string
+          format: date-time
+          description: Inclusive window start in UTC at midnight of the current day.
+        end:
+          type: string
+          format: date-time
+          description: Inclusive window end in UTC at the last millisecond of the final day in the configured window.
+      required: [start, end]
+      example:
+        start: "2024-01-15T00:00:00.000Z"
+        end: "2024-02-11T23:59:59.999Z"
+    FreeBusyResponse:
+      type: object
+      description: Response payload containing the generated window metadata and merged busy intervals in UTC.
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+          description: Timestamp (UTC) when the response was generated.
+        window:
+          $ref: "#/components/schemas/Window"
+        timezone:
+          type: string
+          enum: ["Etc/UTC"]
+          description: Fixed timezone for all timestamps in this API.
+        busy:
+          type: array
+          description: Array of merged, non-overlapping busy intervals clipped to the window.
+          items: { $ref: "#/components/schemas/BusyBlock" }
+        rateLimit:
+          $ref: "#/components/schemas/RateLimitState"
+      required: [generatedAt, window, timezone, busy]
+      example:
+        generatedAt: "2024-01-15T12:00:00.000Z"
+        window:
+          start: "2024-01-15T00:00:00.000Z"
+          end: "2024-02-11T23:59:59.999Z"
+        timezone: "Etc/UTC"
+        busy:
+          - start: "2024-01-16T09:00:00.000Z"
+            end: "2024-01-16T10:30:00.000Z"
+          - start: "2024-01-17T14:00:00.000Z"
+            end: "2024-01-17T15:00:00.000Z"
+        rateLimit:
+          nextAllowedAt: "2024-01-15T12:05:00.000Z"
+          scopes:
+            perIp:
+              remaining: 0
+              reset: "2024-01-15T12:05:00.000Z"
+              limit: 60
+              windowMs: 300000
+            global:
+              remaining: 10
+              reset: "2024-01-15T12:10:00.000Z"
+              limit: 600
+              windowMs: 300000
+    RateLimitScopeState:
+      type: object
+      description: State for a single rate limit scope.
+      properties:
+        remaining:
+          type: integer
+          minimum: 0
+          description: Remaining requests in the current window.
+        reset:
+          type: string
+          format: date-time
+          description: When the window resets (UTC).
+        limit:
+          type: integer
+          minimum: 1
+          description: Maximum requests allowed in the window.
+        windowMs:
+          type: integer
+          minimum: 1
+          description: Window length in milliseconds.
+      required: [remaining, reset, limit, windowMs]
+    RateLimitState:
+      type: object
+      description: Aggregated rate limit metadata for the request.
+      properties:
+        nextAllowedAt:
+          type: string
+          format: date-time
+          description: Earliest UTC time when all throttled scopes are expected to allow traffic again.
+        scopes:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/RateLimitScopeState"
+          description: Map of scope label to scope state (e.g., perIp, global).
+      required: [nextAllowedAt, scopes]
+    RateLimitedErrorResponse:
+      allOf:
+        - $ref: "#/components/schemas/ErrorResponse"
+        - type: object
+          properties:
+            rateLimit:
+              $ref: "#/components/schemas/RateLimitState"
+          required: [rateLimit]
+    HealthResponse:
+      type: object
+      description: Minimal liveness signal.
+      properties:
+        ok:
+          type: boolean
+          const: true
+          description: Always true when the Worker is reachable and responding.
+      required: [ok]
+      example:
+        ok: true
+    ErrorResponse:
+      type: object
+      description: Standard error shape returned by all endpoints.
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - forbidden_origin
+            - rate_limited
+            - upstream
+            - parse
+            - disabled
+            - misconfigured
+            - not_found
+      required: [error]
+      example:
+        error: rate_limited

@@ -1,7 +1,11 @@
 import { BusyBlock } from "./freebusy";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_DURATION_MS = 366 * DAY_MS; // Cap excessive durations to avoid pathological values.
 
+/**
+ * RFC5545 line unfolding: joins lines beginning with space/tab to the previous line.
+ */
 export function unfoldLines(raw: string): string[] {
   const lines = raw.split(/\r?\n/);
   const unfolded: string[] = [];
@@ -78,6 +82,9 @@ function parseICalDate(value: string, tzid: string | undefined, isDateOnly: bool
   return new Date(Date.UTC(year, month, day, hour, minute, second));
 }
 
+/**
+ * Parses an RFC5545 duration (subset) and returns milliseconds, capped for safety.
+ */
 export function parseDuration(value: string): number {
   const match = value.match(/^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/);
   if (!match) return NaN;
@@ -86,7 +93,8 @@ export function parseDuration(value: string): number {
   const hours = h ? Number(h) : 0;
   const minutes = m ? Number(m) : 0;
   const seconds = s ? Number(s) : 0;
-  return (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
+  const totalMs = (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
+  return Math.min(totalMs, MAX_DURATION_MS);
 }
 
 function parseFreeBusyPeriod(part: string, tzid: string | undefined, warn: (msg: string) => void): BusyBlock | null {

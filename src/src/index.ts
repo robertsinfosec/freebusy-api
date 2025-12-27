@@ -1,7 +1,8 @@
 import { parseFreeBusy } from "./ical";
 import { buildWindow, clipAndMerge, toResponseBlocks } from "./freebusy";
-import { Env, isFreeBusyEnabled, validateEnv } from "./env";
-import { enforceRateLimit } from "./rateLimit";
+import { allowedOriginsFromEnv, Env, forwardWindowWeeksFromEnv, isFreeBusyEnabled, rateLimitConfigFromEnv, validateEnv } from "./env";
+import { enforceRateLimit, RateLimitOutcome } from "./rateLimit";
+import { readLimitedText, redactUrl, sanitizeLogMessage } from "./logging";
 
 interface CachedData {
   fetchedAt: number;
@@ -9,10 +10,43 @@ interface CachedData {
 }
 
 const CACHE_TTL_MS = 60_000;
-const ALLOWED_ORIGINS = new Set([
-  "https://freebusy.robertsinfosec.com",
-  "http://localhost:5000",
-]);
+const UPSTREAM_FETCH_TIMEOUT_MS = 8_000;
+const MAX_UPSTREAM_BYTES = 1_500_000; // Cap upstream payload to avoid memory/CPU exhaustion.
+
+let allowedOriginsCache: Set<string> | null = null;
+let rateLimitConfigCache: ReturnType<typeof rateLimitConfigFromEnv> | null = null;
+let forwardWindowWeeksCache: number | null = null;
+
+function getAllowedOrigins(): Set<string> {
+  if (!allowedOriginsCache) {
+    throw new Error("allowed origins not initialized");
+  }
+  return allowedOriginsCache;
+}
+
+function formatRateLimit(outcome: RateLimitOutcome) {
+  const nowIso = new Date().toISOString();
+  const scopeEntries = Object.entries(outcome.scopes ?? {});
+  const throttledResets = scopeEntries
+    .filter(([, s]) => s.remaining === 0)
+    .map(([, s]) => s.reset);
+  const nextAllowedAt = throttledResets.length ? new Date(Math.max(...throttledResets)).toISOString() : nowIso;
+
+  const scopes: Record<string, { remaining: number; reset: string; limit: number; windowMs: number }> = {};
+  for (const [label, s] of scopeEntries) {
+    scopes[label] = {
+      remaining: s.remaining,
+      reset: new Date(s.reset).toISOString(),
+      limit: s.limit,
+      windowMs: s.windowMs,
+    };
+  }
+
+  return {
+    nextAllowedAt,
+    scopes,
+  };
+}
 
 let cached: CachedData | null = null;
 
@@ -22,13 +56,16 @@ function baseHeaders(): Headers {
   headers.set("X-Robots-Tag", "noindex");
   headers.set("Content-Security-Policy", "default-src 'none'");
   headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Permissions-Policy", "geolocation=(),microphone=(),camera=()");
   headers.set("Vary", "Origin");
   return headers;
 }
 
-function applyCors(headers: Headers, origin: string | null): boolean {
+function applyCors(headers: Headers, origin: string | null, allowedOrigins: Set<string>): boolean {
   if (!origin) return true;
-  if (!ALLOWED_ORIGINS.has(origin)) return false;
+  if (!allowedOrigins.has(origin)) return false;
   headers.set("Access-Control-Allow-Origin", origin);
   headers.set("Access-Control-Allow-Methods", "GET,OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Content-Type");
@@ -40,25 +77,11 @@ function jsonResponse(request: Request, body: unknown, status = 200): Response {
   const origin = request.headers.get("Origin");
   const headers = baseHeaders();
   headers.set("Content-Type", "application/json");
-  const allowed = applyCors(headers, origin);
+  const allowed = applyCors(headers, origin, getAllowedOrigins());
   if (origin && !allowed) {
     return new Response(JSON.stringify({ error: "forbidden_origin" }), { status: 403, headers });
   }
   return new Response(JSON.stringify(body), { status, headers });
-}
-
-function redactUrl(secretUrl: string): string {
-  try {
-    const url = new URL(secretUrl);
-    const parts = url.pathname.split("/").filter(Boolean);
-    if (parts.length > 0) {
-      parts[parts.length - 1] = "***";
-    }
-    const redactedPath = parts.length ? `/${parts.join("/")}` : "/";
-    return `${url.origin}${redactedPath}`;
-  } catch {
-    return "<invalid-url>";
-  }
 }
 
 async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>> {
@@ -74,6 +97,8 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
     headers: {
       Accept: "text/calendar,text/plain",
     },
+    // Abort if the upstream stalls to avoid burning worker time.
+    signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
   });
 
   console.info("[freebusy] upstream response", { target, status: res.status, ok: res.ok });
@@ -86,7 +111,7 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
     throw new Error("unexpected_content_type");
   }
 
-  const text = await res.text();
+  const text = await readLimitedText(res, MAX_UPSTREAM_BYTES);
   const diagnostics = {
     bytes: text.length,
     hasVfreebusy: /BEGIN:VFREEBUSY/i.test(text),
@@ -94,7 +119,7 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
   };
   console.info("[freebusy] upstream ical diagnostics", { target, ...diagnostics });
 
-  const busy = parseFreeBusy(text, (msg) => console.warn("[freebusy] parse warning", msg));
+  const busy = parseFreeBusy(text, (msg) => console.warn("[freebusy] parse warning", sanitizeLogMessage(msg)));
   console.info("[freebusy] parsed busy blocks", { count: busy.length });
   cached = { fetchedAt: now, busy };
   return busy;
@@ -103,10 +128,14 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
 async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
   const ip = request.headers.get("CF-Connecting-IP") ?? "0.0.0.0";
 
+  let rateLimitOutcome: RateLimitOutcome | null = null;
   try {
-    const result = await enforceRateLimit(env, ip);
-    if (!result.allowed) {
-      return jsonResponse(request, { error: "rate_limited" }, 429);
+    if (!rateLimitConfigCache) {
+      throw new Error("rate limit config not initialized");
+    }
+    rateLimitOutcome = await enforceRateLimit(env, ip, rateLimitConfigCache);
+    if (!rateLimitOutcome.allowed) {
+      return jsonResponse(request, { error: "rate_limited", rateLimit: formatRateLimit(rateLimitOutcome) }, 429);
     }
   } catch (err) {
     console.error("rate limit failure", err);
@@ -122,7 +151,11 @@ async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
   }
 
   const now = new Date();
-  const { windowStart, windowEnd } = buildWindow(now);
+  if (forwardWindowWeeksCache === null) {
+    throw new Error("forward window not initialized");
+  }
+
+  const { windowStart, windowEnd } = buildWindow(forwardWindowWeeksCache, now);
 
   let merged;
   try {
@@ -137,6 +170,7 @@ async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
     window: { start: windowStart.toISOString(), end: windowEnd.toISOString() },
     timezone: "Etc/UTC",
     busy: toResponseBlocks(merged),
+    rateLimit: rateLimitOutcome ? formatRateLimit(rateLimitOutcome) : undefined,
   };
 
   return jsonResponse(request, responseBody, 200);
@@ -149,7 +183,7 @@ function handleHealth(request: Request): Response {
 async function handleOptions(request: Request): Promise<Response> {
   const origin = request.headers.get("Origin");
   const headers = baseHeaders();
-  const allowed = applyCors(headers, origin);
+  const allowed = applyCors(headers, origin, getAllowedOrigins());
   if (!allowed) {
     return new Response(null, { status: 403, headers });
   }
@@ -166,6 +200,10 @@ export default {
       console.error("env validation failed", err);
       return jsonResponse(request, { error: "misconfigured" }, 500);
     }
+
+    allowedOriginsCache = allowedOriginsFromEnv(validatedEnv);
+    rateLimitConfigCache = rateLimitConfigFromEnv(validatedEnv);
+    forwardWindowWeeksCache = forwardWindowWeeksFromEnv(validatedEnv);
 
     const { pathname } = new URL(request.url);
     if (request.method === "OPTIONS") {
