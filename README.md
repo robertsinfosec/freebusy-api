@@ -2,6 +2,8 @@
 
 Cloudflare Worker that proxies a private calendar free/busy iCal URL and returns a sanitized JSON free/busy window starting at today 00:00:00 UTC and extending a configurable number of weeks.
 
+![coverage](badges/coverage.svg) ![tests](badges/tests.svg)
+
 ## What it does
 - `GET /freebusy` – fetches a secret free/busy feed, parses `VFREEBUSY`/`FREEBUSY` blocks, merges/normalizes to UTC, clips to `today 00:00:00Z → end of configured forward window (weeks)`, and returns only busy blocks.
 - `GET /health` – returns `{ "ok": true }` for simple uptime checks.
@@ -53,6 +55,19 @@ Coverage (CLI summary and HTML report in `coverage/`):
 npm --prefix src run test:coverage
 ```
 - For badges, wire a CI job (e.g., GitHub Actions) to run `npm --prefix src run test:coverage` and publish coverage/test status to a badge service (e.g., shields.io or Codecov); badges aren’t auto-generated locally.
+
+Static badges (local, from last coverage run):
+```bash
+npm --prefix src run test:coverage
+npm --prefix src run badge:coverage
+```
+Generated under `badges/`:
+- Coverage: `badges/coverage.svg`
+- Tests (static "passing"): `badges/tests.svg`
+
+To display in the README, add for example:
+
+![coverage](badges/coverage.svg) ![tests](badges/tests.svg)
 
 ## API Specification
 - Canonical OpenAPI spec: `docs/openapi.yaml`. Use this for previews (e.g., 42Crunch) and contract tests. Avoid maintaining copies elsewhere.
