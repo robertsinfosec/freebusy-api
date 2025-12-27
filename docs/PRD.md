@@ -29,6 +29,7 @@ Provide a production-ready, security-first Free/Busy aggregation API backed by a
 - Upstream ingest: fetch private `FREEBUSY_ICAL_URL` over HTTPS; reject non-2xx or non-calendar content types; enforce payload cap (1.5 MB) before parsing.
 - Parsing: support `VFREEBUSY/FREEBUSY` and `VEVENT` with `DTSTART/DTEND/DURATION`, line unfolding, TZID handling, and all-day events.
 - Normalization: clip to `today 00:00:00Z → end of configured forward window (weeks)`; merge overlapping/adjacent blocks; emit ISO UTC strings.
+	- Response metadata: successful `/freebusy` responses include a `version` field (build identifier; typically `YY.MMDD.HHmm`) to help clients correlate behavior with deployments.
 - Caching: cache upstream parse results for 60 seconds to reduce load.
 - Feature flag: `FREEBUSY_ENABLED` disables `/freebusy` with 503.
 - Rate limit: configured per hashed IP via Durable Object; window/limit are required via env (`RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`). Optional global limit via `RATE_LIMIT_GLOBAL_WINDOW_MS`, `RATE_LIMIT_GLOBAL_MAX` (both required together). Responses include rate-limit metadata (`nextAllowedAt`, per-scope remaining/reset) so clients can back off UI actions.

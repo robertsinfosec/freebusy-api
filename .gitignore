@@ -198,6 +198,9 @@ dist
 .pnp.*
 
 ### Node Patch ###
+
+# Build artifacts
+src/version.txt
 # Serverless Webpack directories
 .webpack/
 

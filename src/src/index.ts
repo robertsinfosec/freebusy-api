@@ -3,6 +3,7 @@ import { buildWindow, clipAndMerge, toResponseBlocks } from "./freebusy";
 import { allowedOriginsFromEnv, Env, forwardWindowWeeksFromEnv, isFreeBusyEnabled, rateLimitConfigFromEnv, validateEnv } from "./env";
 import { enforceRateLimit, RateLimitOutcome } from "./rateLimit";
 import { readLimitedText, redactUrl, sanitizeLogMessage } from "./logging";
+import { getBuildVersion } from "./version";
 
 interface CachedData {
   fetchedAt: number;
@@ -166,6 +167,7 @@ async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
   }
 
   const responseBody = {
+    version: getBuildVersion(),
     generatedAt: now.toISOString(),
     window: { start: windowStart.toISOString(), end: windowEnd.toISOString() },
     timezone: "Etc/UTC",

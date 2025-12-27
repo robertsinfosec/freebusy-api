@@ -74,7 +74,8 @@ paths:
 
         The request is rate limited per hashed IP (using `CF-Connecting-IP` when present) via a Durable Object; if the
         limit is exceeded, `429 rate_limited` is returned. CORS is restricted to an allowlist; disallowed origins receive
-        `403 forbidden_origin`. A feature flag (`FREEBUSY_ENABLED`) can disable the endpoint, returning `503 disabled`.
+        `403 forbidden_origin`. Successful responses include a build `version` field (typically `YY.MMDD.HHmm`). A feature
+        flag (`FREEBUSY_ENABLED`) can disable the endpoint, returning `503 disabled`.
       operationId: getFreebusy
       responses:
         "200":
@@ -86,6 +87,7 @@ paths:
               examples:
                 sample:
                   value:
+                    version: "24.0115.1200"
                     generatedAt: "2024-01-15T12:00:00.000Z"
                     window:
                       start: "2024-01-15T00:00:00.000Z"
@@ -208,6 +210,9 @@ components:
       type: object
       description: Response payload containing the generated window metadata and merged busy intervals in UTC.
       properties:
+        version:
+          type: string
+          description: Build version identifier (typically `YY.MMDD.HHmm`). Falls back to `0.0.0` when unavailable.
         generatedAt:
           type: string
           format: date-time
@@ -224,8 +229,9 @@ components:
           items: { $ref: "#/components/schemas/BusyBlock" }
         rateLimit:
           $ref: "#/components/schemas/RateLimitState"
-      required: [generatedAt, window, timezone, busy]
+      required: [version, generatedAt, window, timezone, busy]
       example:
+        version: "24.0115.1200"
         generatedAt: "2024-01-15T12:00:00.000Z"
         window:
           start: "2024-01-15T00:00:00.000Z"

@@ -109,6 +109,8 @@ curl -i http://localhost:8787/freebusy
 - Window starts at 00:00:00 UTC today and ends 23:59:59.999 on the final day of the configured forward window (weeks).
 - Times without a `Z` or `TZID` are treated as UTC. If a `TZID` is present, it is logged and treated as UTC (minimal dependency approach).
 - Responses are always UTC and include merged/adjacent busy blocks only.
+- Successful `/freebusy` responses include a `version` field (typically `YY.MMDD.HHmm`) so clients can correlate behavior with deployments.
+- Build step generates `src/version.txt` (transient build output; intentionally untracked) and embeds the same value into the Worker at build time.
 - Rate limit metadata is returned with `/freebusy` responses (including 429) so clients can back off (fields: `nextAllowedAt`, per-scope `remaining/reset`).
 - CORS allowlist must be provided via env; requests from disallowed origins receive 403.
 - Logging: upstream URLs are redacted to origin-only; parse warnings are sanitized and truncated to avoid leaking feed contents.

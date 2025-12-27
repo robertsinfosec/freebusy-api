@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "cp .env .dev.vars 2>/dev/null || true; wrangler dev --config wrangler.toml",
-    "deploy": "wrangler deploy --config wrangler.toml",
-    "build": "tsc --noEmit",
+    "dev": "node scripts/generate-version.mjs && cp .env .dev.vars 2>/dev/null || true; wrangler dev --config wrangler.toml",
+    "deploy": "node scripts/generate-version.mjs && wrangler deploy --config wrangler.toml",
+    "build": "node scripts/generate-version.mjs && tsc --noEmit",
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

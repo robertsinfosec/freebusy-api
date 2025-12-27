@@ -87,6 +87,8 @@ describe("index handler", () => {
     const res = await worker.fetch(request("/freebusy"), baseEnv as any);
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
+    expect(typeof body.version).toBe("string");
+    expect(body.version.length).toBeGreaterThan(0);
     expect(Array.isArray(body.busy)).toBe(true);
     expect(body.busy.length).toBe(1);
     expect(body.window.start.endsWith("T00:00:00.000Z")).toBe(true);
