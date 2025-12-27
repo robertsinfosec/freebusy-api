@@ -113,4 +113,3 @@ curl -i http://localhost:8787/freebusy
 - CORS allowlist must be provided via env; requests from disallowed origins receive 403.
 - Logging: upstream URLs are redacted to origin-only; parse warnings are sanitized and truncated to avoid leaking feed contents.
 - Safety limits: upstream iCal payloads larger than 1.5 MB are rejected with a 502 to prevent resource exhaustion.
-
