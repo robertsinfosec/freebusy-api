@@ -21,7 +21,7 @@ Cloudflare Worker that fetches a private iCal free/busy feed, normalizes busy in
 5) Feature flag: `FREEBUSY_ENABLED` can short-circuit with 503 `disabled`.
 6) Rate limit: hash IP with `RL_SALT`, check Durable Object; 429 if exceeded.
 7) Upstream fetch: retrieve `FREEBUSY_ICAL_URL` (HTTPS), accept `text/calendar|text/plain`; non-OK or wrong type → 502; payloads over 1.5 MB are rejected before parsing.
-8) Parse and normalize: unfold lines, parse VFREEBUSY/VEVENT, handle TZID/all-day/duration, clip to window (today 00:00:00Z → end of configured forward window in weeks), merge overlapping/adjacent blocks, convert to ISO UTC strings.
+8) Parse and normalize: unfold lines, parse VFREEBUSY/VEVENT, handle TZID/all-day/duration, clip to window (today 00:00:00 America/New_York → end of configured forward window in weeks), merge overlapping/adjacent blocks, convert to ISO-8601 strings in America/New_York (with DST-aware offsets).
 9) Response: JSON with strict headers (`no-store`, CSP default-src 'none', nosniff, vary Origin). CORS allowed only for configured origins.
 
 ## Data Handling

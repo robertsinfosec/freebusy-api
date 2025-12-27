@@ -1,11 +1,11 @@
 # freebusy-api
 
-Cloudflare Worker that proxies a private calendar free/busy iCal URL and returns a sanitized JSON free/busy window starting at today 00:00:00 UTC and extending a configurable number of weeks.
+Cloudflare Worker that proxies a private calendar free/busy iCal URL and returns a sanitized JSON free/busy window starting at today 00:00:00 in a configurable timezone and extending a configurable number of weeks.
 
 ![coverage](badges/coverage.svg) ![tests](badges/tests.svg)
 
 ## What it does
-- `GET /freebusy` – fetches a secret free/busy feed, parses `VFREEBUSY`/`FREEBUSY` blocks, merges/normalizes to UTC, clips to `today 00:00:00Z → end of configured forward window (weeks)`, and returns only busy blocks.
+- `GET /freebusy` – fetches a secret free/busy feed, parses `VFREEBUSY`/`FREEBUSY` blocks, merges/normalizes to America/New_York, clips to `today 00:00:00 (America/New_York) → end of configured forward window (weeks)`, and returns only busy blocks.
 - `GET /health` – returns `{ "ok": true }` for simple uptime checks.
 
 ## Prerequisites
@@ -30,7 +30,8 @@ Edit `src/.env` with your calendar free/busy URL, forward window, CORS allowlist
 ### Configuration (env vars)
 - `FREEBUSY_ICAL_URL` (required): HTTPS free/busy iCal feed to proxy.
 - `RL_SALT` (required): random hex string used to hash IPs for rate limiting.
-- `MAXIMUM_FORWARD_WINDOW_IN_WEEKS` (required): integer > 0; window starts at today 00:00:00 UTC and ends 23:59:59.999 on the final day.
+- `PREFERRED_TIMEZONE` (required): IANA timezone identifier used for windowing and all returned timestamps (e.g. `America/New_York`).
+- `MAXIMUM_FORWARD_WINDOW_IN_WEEKS` (required): integer > 0; window starts at today 00:00:00 in `PREFERRED_TIMEZONE` and ends 23:59:59.999 on the final day.
 - `CORS_ALLOWLIST` (required): comma-separated origins allowed for CORS (e.g., `https://example.com,http://localhost:5000`).
 - `RATE_LIMIT_WINDOW_MS` (required): per-IP rate-limit window in milliseconds.
 - `RATE_LIMIT_MAX` (required): max requests per-IP per window.
@@ -106,9 +107,9 @@ curl -i http://localhost:8787/freebusy
 ```
 
 ## Notes
-- Window starts at 00:00:00 UTC today and ends 23:59:59.999 on the final day of the configured forward window (weeks).
+- Window starts at 00:00:00 America/New_York today and ends 23:59:59.999 on the final day of the configured forward window (weeks).
 - Times without a `Z` or `TZID` are treated as UTC. If a `TZID` is present, it is logged and treated as UTC (minimal dependency approach).
-- Responses are always UTC and include merged/adjacent busy blocks only.
+- Responses are always expressed in America/New_York (ISO-8601 timestamps include the appropriate offset, e.g. `-05:00` or `-04:00`).
 - Successful `/freebusy` responses include a `version` field (typically `YY.MMDD.HHmm`) so clients can correlate behavior with deployments.
 - Build step generates `src/version.txt` (transient build output; intentionally untracked) and embeds the same value into the Worker at build time.
 - Rate limit metadata is returned with `/freebusy` responses (including 429) so clients can back off (fields: `nextAllowedAt`, per-scope `remaining/reset`).

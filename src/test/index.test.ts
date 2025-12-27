@@ -21,6 +21,7 @@ const ALLOWLIST = "https://example.com";
 const baseEnv = {
   FREEBUSY_ICAL_URL: "https://upstream.example.com/feed.ics",
   RL_SALT: "salt",
+  PREFERRED_TIMEZONE: "America/New_York",
   RATE_LIMITER: {
     idFromName: vi.fn(() => ({})),
     get: vi.fn(() => ({ fetch: vi.fn(async () => new Response(JSON.stringify({ allowed: true, scopes: [] }))) } as any)),
@@ -91,7 +92,9 @@ describe("index handler", () => {
     expect(body.version.length).toBeGreaterThan(0);
     expect(Array.isArray(body.busy)).toBe(true);
     expect(body.busy.length).toBe(1);
-    expect(body.window.start.endsWith("T00:00:00.000Z")).toBe(true);
+    expect(body.timezone).toBe("America/New_York");
+    expect(typeof body.window.start).toBe("string");
+    expect(body.window.start).toMatch(/T00:00:00\.000[-+]\d{2}:\d{2}$/);
     expect(body.rateLimit.scopes.perIp.limit).toBe(60);
   });
 
@@ -110,5 +113,34 @@ describe("index handler", () => {
     expect(res.status).toBe(429);
     const body = (await res.json()) as any;
     expect(body.error).toBe("rate_limited");
+  });
+
+  it("respects PREFERRED_TIMEZONE for formatting", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-01-15T12:00:00.000Z"));
+
+    vi.mocked(enforceRateLimit).mockResolvedValue({
+      allowed: true,
+      remaining: 1,
+      reset: Date.now() + 1000,
+      scopes: { perIp: { label: "perIp", allowed: true, remaining: 1, reset: Date.now() + 1000, limit: 60, windowMs: 300000 } },
+    });
+
+    // Deterministic winter offset for LA (PST, -08:00).
+    const start = new Date("2025-01-16T00:30:00.000Z");
+    const end = new Date("2025-01-16T01:30:00.000Z");
+    vi.mocked(parseFreeBusy).mockReturnValue([{ start, end }]);
+
+    (globalThis as any).fetch = vi.fn(async () => new Response("BEGIN:VFREEBUSY\nEND:VFREEBUSY", { headers: { "content-type": "text/calendar", "content-length": "30" } }));
+
+    const worker = await loadWorker();
+    const env = { ...baseEnv, PREFERRED_TIMEZONE: "America/Los_Angeles" };
+    const res = await worker.fetch(request("/freebusy"), env as any);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.timezone).toBe("America/Los_Angeles");
+    expect(body.busy[0].start.endsWith("-08:00")).toBe(true);
+
+    vi.useRealTimers();
   });
 });

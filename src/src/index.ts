@@ -1,9 +1,11 @@
 import { parseFreeBusy } from "./ical";
 import { buildWindow, clipAndMerge, toResponseBlocks } from "./freebusy";
 import { allowedOriginsFromEnv, Env, forwardWindowWeeksFromEnv, isFreeBusyEnabled, rateLimitConfigFromEnv, validateEnv } from "./env";
+import { preferredTimezoneFromEnv } from "./env";
 import { enforceRateLimit, RateLimitOutcome } from "./rateLimit";
 import { readLimitedText, redactUrl, sanitizeLogMessage } from "./logging";
 import { getBuildVersion } from "./version";
+import { formatIsoInTimeZone } from "./time";
 
 interface CachedData {
   fetchedAt: number;
@@ -25,19 +27,19 @@ function getAllowedOrigins(): Set<string> {
   return allowedOriginsCache;
 }
 
-function formatRateLimit(outcome: RateLimitOutcome) {
-  const nowIso = new Date().toISOString();
+function formatRateLimit(outcome: RateLimitOutcome, timeZone: string) {
+  const nowIso = formatIsoInTimeZone(new Date(), timeZone);
   const scopeEntries = Object.entries(outcome.scopes ?? {});
   const throttledResets = scopeEntries
     .filter(([, s]) => s.remaining === 0)
     .map(([, s]) => s.reset);
-  const nextAllowedAt = throttledResets.length ? new Date(Math.max(...throttledResets)).toISOString() : nowIso;
+  const nextAllowedAt = throttledResets.length ? formatIsoInTimeZone(new Date(Math.max(...throttledResets)), timeZone) : nowIso;
 
   const scopes: Record<string, { remaining: number; reset: string; limit: number; windowMs: number }> = {};
   for (const [label, s] of scopeEntries) {
     scopes[label] = {
       remaining: s.remaining,
-      reset: new Date(s.reset).toISOString(),
+      reset: formatIsoInTimeZone(new Date(s.reset), timeZone),
       limit: s.limit,
       windowMs: s.windowMs,
     };
@@ -129,6 +131,8 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
 async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
   const ip = request.headers.get("CF-Connecting-IP") ?? "0.0.0.0";
 
+  const preferredTimeZone = preferredTimezoneFromEnv(env);
+
   let rateLimitOutcome: RateLimitOutcome | null = null;
   try {
     if (!rateLimitConfigCache) {
@@ -136,7 +140,7 @@ async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
     }
     rateLimitOutcome = await enforceRateLimit(env, ip, rateLimitConfigCache);
     if (!rateLimitOutcome.allowed) {
-      return jsonResponse(request, { error: "rate_limited", rateLimit: formatRateLimit(rateLimitOutcome) }, 429);
+      return jsonResponse(request, { error: "rate_limited", rateLimit: formatRateLimit(rateLimitOutcome, preferredTimeZone) }, 429);
     }
   } catch (err) {
     console.error("rate limit failure", err);
@@ -156,7 +160,7 @@ async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
     throw new Error("forward window not initialized");
   }
 
-  const { windowStart, windowEnd } = buildWindow(forwardWindowWeeksCache, now);
+  const { windowStart, windowEnd } = buildWindow(forwardWindowWeeksCache, now, preferredTimeZone);
 
   let merged;
   try {
@@ -168,11 +172,14 @@ async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
 
   const responseBody = {
     version: getBuildVersion(),
-    generatedAt: now.toISOString(),
-    window: { start: windowStart.toISOString(), end: windowEnd.toISOString() },
-    timezone: "Etc/UTC",
-    busy: toResponseBlocks(merged),
-    rateLimit: rateLimitOutcome ? formatRateLimit(rateLimitOutcome) : undefined,
+    generatedAt: formatIsoInTimeZone(now, preferredTimeZone),
+    window: {
+      start: formatIsoInTimeZone(windowStart, preferredTimeZone),
+      end: formatIsoInTimeZone(windowEnd, preferredTimeZone),
+    },
+    timezone: preferredTimeZone,
+    busy: toResponseBlocks(merged, preferredTimeZone),
+    rateLimit: rateLimitOutcome ? formatRateLimit(rateLimitOutcome, preferredTimeZone) : undefined,
   };
 
   return jsonResponse(request, responseBody, 200);

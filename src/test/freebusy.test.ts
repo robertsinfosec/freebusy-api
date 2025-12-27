@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { buildWindow, clipAndMerge, toResponseBlocks } from "../src/freebusy";
 
+const TZ = "America/New_York";
+
 describe("buildWindow", () => {
-  it("starts at midnight UTC today and extends the provided weeks", () => {
+  it("starts at midnight America/New_York today and extends the provided weeks", () => {
     const now = new Date("2025-01-01T12:00:45Z");
-    const { windowStart, windowEnd } = buildWindow(4, now);
-    expect(windowStart.toISOString()).toBe("2025-01-01T00:00:00.000Z");
-    expect(windowEnd.toISOString()).toBe("2025-01-28T23:59:59.999Z");
+    const { windowStart, windowEnd } = buildWindow(4, now, TZ);
+    // 2025-01-01 is EST (UTC-05:00): local midnight is 05:00Z.
+    expect(windowStart.toISOString()).toBe("2025-01-01T05:00:00.000Z");
+    // End of day 2025-01-28 23:59:59.999 EST is 2025-01-29T04:59:59.999Z.
+    expect(windowEnd.toISOString()).toBe("2025-01-29T04:59:59.999Z");
   });
 });
 
@@ -32,12 +36,12 @@ describe("clipAndMerge", () => {
 });
 
 describe("toResponseBlocks", () => {
-  it("serializes dates to ISO strings", () => {
+  it("serializes dates to ISO strings in America/New_York", () => {
     const blocks = [
       { start: new Date("2025-01-01T10:00:00Z"), end: new Date("2025-01-01T11:00:00Z") },
     ];
-    const result = toResponseBlocks(blocks);
-    expect(result[0].start).toBe("2025-01-01T10:00:00.000Z");
-    expect(result[0].end).toBe("2025-01-01T11:00:00.000Z");
+    const result = toResponseBlocks(blocks, TZ);
+    expect(result[0].start).toBe("2025-01-01T05:00:00.000-05:00");
+    expect(result[0].end).toBe("2025-01-01T06:00:00.000-05:00");
   });
 });

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/generate-version.mjs && cp .env .dev.vars 2>/dev/null || true; wrangler dev --config wrangler.toml",
+    "dev": "node scripts/generate-version.mjs && cp .env .dev.vars 2>/dev/null || true; wrangler dev --config wrangler.toml --ip 0.0.0.0 --port 8787",
     "deploy": "node scripts/generate-version.mjs && wrangler deploy --config wrangler.toml",
     "build": "node scripts/generate-version.mjs && tsc --noEmit",
     "check": "tsc --noEmit",

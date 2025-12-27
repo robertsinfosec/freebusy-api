@@ -1,18 +1,20 @@
+import { buildZonedWindow, formatIsoInTimeZone } from "./time";
+
 export interface BusyBlock {
   start: Date;
   end: Date;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /**
- * Returns a deterministic window starting at 00:00:00 UTC today and extending the provided weeks.
+ * Returns a deterministic window starting at 00:00:00 in the requested time zone "today" and
+ * extending the provided weeks through 23:59:59.999 on the final day (DST-aware).
  */
-export function buildWindow(forwardWeeks: number, now: Date = new Date()): { windowStart: Date; windowEnd: Date } {
-  const startOfDayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const totalDays = forwardWeeks * 7;
-  const windowEnd = new Date(startOfDayUtc.getTime() + totalDays * DAY_MS - 1); // 23:59:59.999 of last day
-  return { windowStart: startOfDayUtc, windowEnd };
+export function buildWindow(
+  forwardWeeks: number,
+  now: Date = new Date(),
+  timeZone: string
+): { windowStart: Date; windowEnd: Date } {
+  return buildZonedWindow(forwardWeeks, now, timeZone);
 }
 
 /**
@@ -54,8 +56,11 @@ export function clipAndMerge(blocks: BusyBlock[], windowStart: Date, windowEnd: 
 }
 
 /**
- * Converts busy blocks to ISO8601 strings for responses.
+ * Converts busy blocks to ISO8601 strings in the requested time zone.
  */
-export function toResponseBlocks(blocks: BusyBlock[]): { start: string; end: string }[] {
-  return blocks.map((block) => ({ start: block.start.toISOString(), end: block.end.toISOString() }));
+export function toResponseBlocks(
+  blocks: BusyBlock[],
+  timeZone: string
+): { start: string; end: string }[] {
+  return blocks.map((block) => ({ start: formatIsoInTimeZone(block.start, timeZone), end: formatIsoInTimeZone(block.end, timeZone) }));
 }

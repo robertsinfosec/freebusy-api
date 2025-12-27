@@ -3,6 +3,7 @@ export interface Env {
   RL_SALT: string;
   RATE_LIMITER: DurableObjectNamespace;
   MAXIMUM_FORWARD_WINDOW_IN_WEEKS: string;
+  PREFERRED_TIMEZONE: string;
   FREEBUSY_ENABLED?: string;
   CORS_ALLOWLIST?: string;
   RATE_LIMIT_WINDOW_MS?: string;
@@ -61,6 +62,9 @@ export function validateEnv(env: Partial<Env>): Env {
   if (!env.MAXIMUM_FORWARD_WINDOW_IN_WEEKS || typeof env.MAXIMUM_FORWARD_WINDOW_IN_WEEKS !== "string") {
     throw new Error("missing MAXIMUM_FORWARD_WINDOW_IN_WEEKS");
   }
+  if (!env.PREFERRED_TIMEZONE || typeof env.PREFERRED_TIMEZONE !== "string") {
+    throw new Error("missing PREFERRED_TIMEZONE");
+  }
   if (!isDurableObjectNamespace(env.RATE_LIMITER)) {
     throw new Error("missing RATE_LIMITER binding");
   }
@@ -73,7 +77,19 @@ export function validateEnv(env: Partial<Env>): Env {
     throw new Error("invalid FREEBUSY_ICAL_URL");
   }
 
+  // Validate timezone identifier early so we fail-fast on misconfiguration.
+  try {
+    // eslint-disable-next-line no-new
+    new Intl.DateTimeFormat("en-US", { timeZone: env.PREFERRED_TIMEZONE });
+  } catch {
+    throw new Error("invalid PREFERRED_TIMEZONE");
+  }
+
   return env as Env;
+}
+
+export function preferredTimezoneFromEnv(env: Env): string {
+  return env.PREFERRED_TIMEZONE;
 }
 
 /**

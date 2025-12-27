@@ -5,7 +5,7 @@ Operational steps for routine maintenance and incident response for the Freebusy
 
 ## 1) Secrets and Env Management
 - Prod/Stage: set via `wrangler secret put` in the `src` directory:
-  - Required: `FREEBUSY_ICAL_URL`, `RL_SALT`, `MAXIMUM_FORWARD_WINDOW_IN_WEEKS`, `CORS_ALLOWLIST`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`
+  - Required: `FREEBUSY_ICAL_URL`, `RL_SALT`, `PREFERRED_TIMEZONE`, `MAXIMUM_FORWARD_WINDOW_IN_WEEKS`, `CORS_ALLOWLIST`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`
   - Optional (must be paired): `RATE_LIMIT_GLOBAL_WINDOW_MS`, `RATE_LIMIT_GLOBAL_MAX`
   - Optional flag: `FREEBUSY_ENABLED`
 - Local: copy `src/.env.example` to `src/.env` and fill with non-prod values; keep required vars populated.
@@ -48,7 +48,7 @@ Operational steps for routine maintenance and incident response for the Freebusy
 
 # 7) Health and Smoke Tests
 - `/health` returns `{ ok: true }` with 200 for allowed origins; 403 for disallowed origins.
-- `/freebusy` happy path returns 200 with `busy` array; check timestamps are UTC and window starts at today 00:00:00Z and ends at 23:59:59.999 on the last day of the configured forward window.
+- `/freebusy` happy path returns 200 with `busy` array; check timestamps are in `PREFERRED_TIMEZONE` and window starts at today 00:00:00 (local) and ends at 23:59:59.999 on the last day of the configured forward window.
 - Rate limit: exceed configured per-IP window/limit; expect 429.
 - Payload cap: ensure oversized upstream feeds (>1.5 MB) return 502, not partial data.
 - CORS: OPTIONS from disallowed origin returns 403; allowed origin returns 204.
