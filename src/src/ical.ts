@@ -197,10 +197,15 @@ function parseEventComponents(unfolded: string[], warn: (msg: string) => void, d
       if (inEvent && current.start) {
         const isAllDay = Boolean(current.startIsDateOnly);
         const durationMs = currentDuration;
+
+        const computedAllDayEnd =
+          current.startYmd && current.startTimeZone
+            ? (parseICalDate(ymdToString(addDaysToYmd(current.startYmd, 1)), current.startTimeZone, true, warn) ??
+              new Date(current.start.getTime() + DAY_MS))
+            : new Date(current.start.getTime() + DAY_MS);
+
         const defaultEnd = isAllDay
-          ? current.startYmd && current.startTimeZone
-            ? parseICalDate(ymdToString(addDaysToYmd(current.startYmd, 1)), current.startTimeZone, true, warn)
-            : new Date(current.start.getTime() + DAY_MS)
+          ? computedAllDayEnd
           : new Date(current.start.getTime() + 60 * 60 * 1000);
         const endValue = current.end
           ? current.end
@@ -208,11 +213,7 @@ function parseEventComponents(unfolded: string[], warn: (msg: string) => void, d
             ? new Date(current.start.getTime() + durationMs)
             : defaultEnd;
 
-        const end = isAllDay && endValue.getTime() === current.start.getTime()
-          ? current.startYmd && current.startTimeZone
-            ? parseICalDate(ymdToString(addDaysToYmd(current.startYmd, 1)), current.startTimeZone, true, warn)
-            : new Date(current.start.getTime() + DAY_MS)
-          : endValue;
+        const end = isAllDay && endValue.getTime() === current.start.getTime() ? computedAllDayEnd : endValue;
 
         if (end && end > current.start) {
           events.push({ start: current.start, end });
@@ -234,7 +235,7 @@ function parseEventComponents(unfolded: string[], warn: (msg: string) => void, d
           current.start = parsed;
           current.startIsDateOnly = isDateOnly;
           if (isDateOnly) {
-            current.startYmd = parseYmd(dateMatch[1]);
+            current.startYmd = parseYmd(dateMatch[1]) ?? undefined;
             current.startTimeZone = tzidMatch?.[1] ?? defaultTimeZone;
           }
         }
