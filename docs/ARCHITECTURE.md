@@ -8,7 +8,7 @@ Cloudflare Worker that fetches a private iCal free/busy feed, normalizes busy in
 - Free/busy processing (`freebusy.ts`, `ical.ts`): window computation, clipping/merging, iCal parsing.
 - Rate limiting (`rateLimit.ts`): Durable Object-backed per-IP windowed limiter, hashing IPs with salt; window and limit configurable via env. Optional global limiter shares the same DO with separate counters.
 - Env validation (`env.ts`): required bindings and feature flag handling.
-- Configuration: `wrangler.toml` for bindings; secrets via Wrangler; `.env` for local only. Required env: `FREEBUSY_ICAL_URL`, `RL_SALT`, `MAXIMUM_FORWARD_WINDOW_IN_WEEKS`, `CORS_ALLOWLIST`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`. Optional global rate limit requires both `RATE_LIMIT_GLOBAL_WINDOW_MS` and `RATE_LIMIT_GLOBAL_MAX`.
+- Configuration: `wrangler.toml` for bindings; secrets via Wrangler; `.env` for local only. Required env: `FREEBUSY_ICAL_URL`, `RL_SALT`, `CALENDAR_TIMEZONE`, `WINDOW_WEEKS`, `WORKING_HOURS_JSON`, `CORS_ALLOWLIST`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`. Optional: `WEEK_START_DAY`, `CACHE_TTL_SECONDS`, `UPSTREAM_MAX_BYTES`. Optional global rate limit requires both `RATE_LIMIT_GLOBAL_WINDOW_MS` and `RATE_LIMIT_GLOBAL_MAX`.
 - Docs: `docs/PRD.md`, `openapi.yaml`, this file.
 
 ## Request Flow
@@ -21,11 +21,11 @@ Cloudflare Worker that fetches a private iCal free/busy feed, normalizes busy in
 5) Feature flag: `FREEBUSY_ENABLED` can short-circuit with 503 `disabled`.
 6) Rate limit: hash IP with `RL_SALT`, check Durable Object; 429 if exceeded.
 7) Upstream fetch: retrieve `FREEBUSY_ICAL_URL` (HTTPS), accept `text/calendar|text/plain`; non-OK or wrong type → 502; payloads over 1.5 MB are rejected before parsing.
-8) Parse and normalize: unfold lines, parse VFREEBUSY/VEVENT, handle TZID/all-day/duration, clip to window (today 00:00:00 America/New_York → end of configured forward window in weeks), merge overlapping/adjacent blocks, convert to ISO-8601 strings in America/New_York (with DST-aware offsets).
+8) Parse and normalize: unfold lines, parse VFREEBUSY/VEVENT, handle TZID/all-day/duration/numeric offsets/floating times, normalize to UTC instants, clip to window anchored to owner-local dates in `CALENDAR_TIMEZONE` (`startUtc` to `endUtcExclusive`), merge overlapping/adjacent blocks.
 9) Response: JSON with strict headers (`no-store`, CSP default-src 'none', nosniff, vary Origin). CORS allowed only for configured origins.
 
 ## Data Handling
-- No storage of calendar content; 60s in-memory cache for parsed busy blocks to reduce upstream load.
+- No storage of calendar content; short in-memory cache for parsed busy blocks (`CACHE_TTL_SECONDS`) to reduce upstream load.
 - Rate-limit state stored in Durable Object (hashed keys only). No PII persisted.
 - Logs redact upstream URL to origin-only; parse warnings are sanitized and truncated; avoid logging secrets or raw IPs.
 

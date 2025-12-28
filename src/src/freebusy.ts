@@ -1,66 +1,75 @@
-import { buildZonedWindow, formatIsoInTimeZone } from "./time";
+import { addDaysToZonedYmd, formatUtcIso, formatYmd, getZonedYmd, utcMillisFromZonedLocal } from "./time";
 
-export interface BusyBlock {
-  start: Date;
-  end: Date;
+export type BusyIntervalKind = "time" | "allDay";
+
+export interface BusyInterval {
+  startMsUtc: number;
+  endMsUtc: number;
+  kind: BusyIntervalKind;
+}
+
+export interface WindowV2 {
+  startDate: string;
+  endDateInclusive: string;
+  startMsUtc: number;
+  endMsUtcExclusive: number;
 }
 
 /**
- * Returns a deterministic window starting at 00:00:00 in the requested time zone "today" and
- * extending the provided weeks through 23:59:59.999 on the final day (DST-aware).
+ * v2 window model:
+ * - anchored to owner-local dates in CALENDAR_TIMEZONE
+ * - returned as startDate/endDateInclusive plus UTC instants [startUtc, endUtcExclusive)
  */
-export function buildWindow(
-  forwardWeeks: number,
-  now: Date = new Date(),
-  timeZone: string
-): { windowStart: Date; windowEnd: Date } {
-  return buildZonedWindow(forwardWeeks, now, timeZone);
+export function buildWindowV2(windowWeeks: number, now: Date, calendarTimeZone: string): WindowV2 {
+  const startYmd = getZonedYmd(now, calendarTimeZone);
+  const totalDays = windowWeeks * 7;
+  const endYmd = addDaysToZonedYmd(startYmd, totalDays - 1);
+  const endExclusiveYmd = addDaysToZonedYmd(endYmd, 1);
+
+  const startMsUtc = utcMillisFromZonedLocal({ ...startYmd, hour: 0, minute: 0 }, calendarTimeZone);
+  const endMsUtcExclusive = utcMillisFromZonedLocal({ ...endExclusiveYmd, hour: 0, minute: 0 }, calendarTimeZone);
+
+  return {
+    startDate: formatYmd(startYmd),
+    endDateInclusive: formatYmd(endYmd),
+    startMsUtc,
+    endMsUtcExclusive,
+  };
 }
 
-/**
- * Trims busy blocks to the window and merges overlapping/contiguous entries.
- */
-export function clipAndMerge(blocks: BusyBlock[], windowStart: Date, windowEnd: Date): BusyBlock[] {
-  const relevant = blocks
-    .map((block) => {
-      const start = block.start < windowStart ? windowStart : block.start;
-      const end = block.end > windowEnd ? windowEnd : block.end;
-      return { start, end };
+export function clipAndMerge(intervals: BusyInterval[], windowStartMsUtc: number, windowEndMsUtcExclusive: number): BusyInterval[] {
+  const relevant = intervals
+    .map((interval) => {
+      const startMsUtc = Math.max(interval.startMsUtc, windowStartMsUtc);
+      const endMsUtc = Math.min(interval.endMsUtc, windowEndMsUtcExclusive);
+      return { startMsUtc, endMsUtc, kind: interval.kind };
     })
-    .filter((block) => block.end > block.start && block.end > windowStart && block.start < windowEnd);
+    .filter((i) => i.endMsUtc > i.startMsUtc && i.endMsUtc > windowStartMsUtc && i.startMsUtc < windowEndMsUtcExclusive);
 
-  relevant.sort((a, b) => a.start.getTime() - b.start.getTime());
-  const merged: BusyBlock[] = [];
+  relevant.sort((a, b) => a.startMsUtc - b.startMsUtc);
+  const merged: BusyInterval[] = [];
 
-  for (const block of relevant) {
+  for (const current of relevant) {
     const last = merged[merged.length - 1];
     if (!last) {
-      merged.push(block);
+      merged.push({ ...current });
       continue;
     }
 
-    const lastEnd = last.end.getTime();
-    const currentStart = block.start.getTime();
-    if (currentStart <= lastEnd) {
-      if (block.end.getTime() > lastEnd) {
-        last.end = block.end;
+    if (current.startMsUtc <= last.endMsUtc) {
+      last.endMsUtc = Math.max(last.endMsUtc, current.endMsUtc);
+      if (last.kind === "time" && current.kind === "allDay") {
+        last.kind = "allDay";
       }
-    } else if (currentStart === lastEnd) {
-      last.end = block.end;
-    } else {
-      merged.push(block);
+      continue;
     }
+
+    merged.push({ ...current });
   }
 
   return merged;
 }
 
-/**
- * Converts busy blocks to ISO8601 strings in the requested time zone.
- */
-export function toResponseBlocks(
-  blocks: BusyBlock[],
-  timeZone: string
-): { start: string; end: string }[] {
-  return blocks.map((block) => ({ start: formatIsoInTimeZone(block.start, timeZone), end: formatIsoInTimeZone(block.end, timeZone) }));
+export function toResponseBusy(intervals: BusyInterval[]): { startUtc: string; endUtc: string; kind: BusyIntervalKind }[] {
+  return intervals.map((i) => ({ startUtc: formatUtcIso(i.startMsUtc), endUtc: formatUtcIso(i.endMsUtc), kind: i.kind }));
 }

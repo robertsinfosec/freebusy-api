@@ -32,12 +32,17 @@ describe("enforceRateLimit", () => {
     } as unknown as Env;
 
     const config = rateLimitConfigFromEnv({
+      FREEBUSY_ICAL_URL: "https://example.com",
+      RL_SALT: "salt",
+      RATE_LIMITER: makeStubNamespace(handler),
+      CALENDAR_TIMEZONE: "America/New_York",
+      WINDOW_WEEKS: "4",
+      WORKING_HOURS_JSON: JSON.stringify({ weekly: [{ dayOfWeek: 1, start: "09:00", end: "17:00" }] }),
       RATE_LIMIT_MAX: "2",
       RATE_LIMIT_WINDOW_MS: "1000",
       RATE_LIMIT_GLOBAL_MAX: "100",
       RATE_LIMIT_GLOBAL_WINDOW_MS: "5000",
-      MAXIMUM_FORWARD_WINDOW_IN_WEEKS: "4",
-    } as Env);
+    } as unknown as Env);
     const result = await enforceRateLimit(env, "1.2.3.4", config);
 
     expect(result.allowed).toBe(false);
@@ -57,10 +62,15 @@ describe("enforceRateLimit", () => {
     } as unknown as Env;
 
     const config = rateLimitConfigFromEnv({
+      FREEBUSY_ICAL_URL: "https://example.com",
+      RL_SALT: "salt",
+      RATE_LIMITER: makeStubNamespace(handler),
+      CALENDAR_TIMEZONE: "America/New_York",
+      WINDOW_WEEKS: "4",
+      WORKING_HOURS_JSON: JSON.stringify({ weekly: [{ dayOfWeek: 1, start: "09:00", end: "17:00" }] }),
       RATE_LIMIT_MAX: "5",
       RATE_LIMIT_WINDOW_MS: "1000",
-      MAXIMUM_FORWARD_WINDOW_IN_WEEKS: "4",
-    } as Env);
+    } as unknown as Env);
 
     await expect(enforceRateLimit(env, "1.2.3.4", config)).rejects.toThrow();
   });

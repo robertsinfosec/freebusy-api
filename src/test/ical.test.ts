@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseDuration, parseFreeBusy, unfoldLines } from "../src/ical";
 
 const warn = () => {};
+const OWNER_TZ = "America/New_York";
 
 describe("unfoldLines", () => {
   it("joins folded ical lines", () => {
@@ -34,12 +35,14 @@ describe("parseFreeBusy", () => {
       "END:VFREEBUSY",
     ].join("\r\n");
 
-    const blocks = parseFreeBusy(ical, warn);
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
     expect(blocks).toHaveLength(3);
-    expect(blocks[0].start.toISOString()).toBe("2025-12-19T14:00:00.000Z");
-    expect(blocks[0].end.toISOString()).toBe("2025-12-19T15:00:00.000Z");
-    expect(blocks[1].end.getTime() - blocks[1].start.getTime()).toBe(30 * 60 * 1000);
-    expect(blocks[2].start.toISOString()).toBe("2025-12-21T14:00:00.000Z");
+    expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2025-12-19T14:00:00.000Z");
+    expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2025-12-19T15:00:00.000Z");
+    expect(blocks[0].kind).toBe("time");
+    expect(blocks[1].endMsUtc - blocks[1].startMsUtc).toBe(30 * 60 * 1000);
+    // 09:00 in America/New_York on 2025-12-21 is 14:00Z (EST).
+    expect(new Date(blocks[2].startMsUtc).toISOString()).toBe("2025-12-21T14:00:00.000Z");
   });
 
   it("ignores blocks outside VFREEBUSY", () => {
@@ -64,12 +67,14 @@ describe("parseFreeBusy", () => {
       "END:VEVENT",
     ].join("\r\n");
 
-    const blocks = parseFreeBusy(ical, warn);
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
     expect(blocks).toHaveLength(2);
-    expect(blocks[0].start.toISOString()).toBe("2025-12-24T00:00:00.000Z");
-    expect(blocks[0].end.toISOString()).toBe("2025-12-25T00:00:00.000Z");
-    expect(blocks[1].start.toISOString()).toBe("2025-12-25T10:00:00.000Z");
-    expect(blocks[1].end.toISOString()).toBe("2025-12-25T12:00:00.000Z");
+    expect(blocks[0].kind).toBe("allDay");
+    expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2025-12-24T05:00:00.000Z");
+    expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2025-12-25T05:00:00.000Z");
+    expect(blocks[1].kind).toBe("time");
+    expect(new Date(blocks[1].startMsUtc).toISOString()).toBe("2025-12-25T10:00:00.000Z");
+    expect(new Date(blocks[1].endMsUtc).toISOString()).toBe("2025-12-25T12:00:00.000Z");
   });
 
   it("parses VEVENT with TZID and converts to UTC", () => {
@@ -80,10 +85,10 @@ describe("parseFreeBusy", () => {
       "END:VEVENT",
     ].join("\r\n");
 
-    const blocks = parseFreeBusy(ical, warn);
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
     expect(blocks).toHaveLength(1);
-    expect(blocks[0].start.toISOString()).toBe("2025-12-24T17:00:00.000Z");
-    expect(blocks[0].end.toISOString()).toBe("2025-12-24T18:00:00.000Z");
+    expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2025-12-24T17:00:00.000Z");
+    expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2025-12-24T18:00:00.000Z");
   });
 
   it("parses VEVENT all-day with implicit end", () => {
@@ -93,10 +98,11 @@ describe("parseFreeBusy", () => {
       "END:VEVENT",
     ].join("\r\n");
 
-    const blocks = parseFreeBusy(ical, warn);
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
     expect(blocks).toHaveLength(1);
-    expect(blocks[0].start.toISOString()).toBe("2025-12-24T00:00:00.000Z");
-    expect(blocks[0].end.toISOString()).toBe("2025-12-25T00:00:00.000Z");
+    expect(blocks[0].kind).toBe("allDay");
+    expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2025-12-24T05:00:00.000Z");
+    expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2025-12-25T05:00:00.000Z");
   });
 
   it("parses VEVENT all-day (VALUE=DATE) using default timezone when TZID is missing", () => {
@@ -106,25 +112,61 @@ describe("parseFreeBusy", () => {
       "END:VEVENT",
     ].join("\r\n");
 
-    const blocks = parseFreeBusy(ical, warn, "America/New_York");
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
     expect(blocks).toHaveLength(1);
+    expect(blocks[0].kind).toBe("allDay");
     // Local midnight ET is 05:00Z in winter.
-    expect(blocks[0].start.toISOString()).toBe("2026-01-01T05:00:00.000Z");
+    expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2026-01-01T05:00:00.000Z");
     // All-day implicit end is next local midnight (half-open interval).
-    expect(blocks[0].end.toISOString()).toBe("2026-01-02T05:00:00.000Z");
+    expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2026-01-02T05:00:00.000Z");
   });
 
-  it("parses VEVENT with TZID and converts to UTC", () => {
+  it("parses numeric offset timestamps (±HHMM)", () => {
     const ical = [
       "BEGIN:VEVENT",
-      "DTSTART;TZID=America/New_York:20251224T120000",
-      "DTEND;TZID=America/New_York:20251224T130000",
+      "DTSTART:20260101T000000-0500",
+      "DTEND:20260101T010000-0500",
       "END:VEVENT",
     ].join("\r\n");
 
-    const blocks = parseFreeBusy(ical, warn);
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
     expect(blocks).toHaveLength(1);
-    expect(blocks[0].start.toISOString()).toBe("2025-12-24T17:00:00.000Z");
-    expect(blocks[0].end.toISOString()).toBe("2025-12-24T18:00:00.000Z");
+    expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2026-01-01T05:00:00.000Z");
+    expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2026-01-01T06:00:00.000Z");
+  });
+
+  it("treats floating DATE-TIME as owner timezone", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART:20260105T100000",
+      "DTEND:20260105T110000",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
+    expect(blocks).toHaveLength(1);
+    // 10:00 in America/New_York (winter) => 15:00Z.
+    expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2026-01-05T15:00:00.000Z");
+    expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2026-01-05T16:00:00.000Z");
+  });
+
+  it("produces different UTC instants across DST for same local time", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART;TZID=America/New_York:20260303T100000",
+      "DTEND;TZID=America/New_York:20260303T110000",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "DTSTART;TZID=America/New_York:20260310T100000",
+      "DTEND;TZID=America/New_York:20260310T110000",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
+    expect(blocks).toHaveLength(2);
+    // Before DST (EST -05): 10:00 => 15:00Z
+    expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2026-03-03T15:00:00.000Z");
+    // After DST (EDT -04): 10:00 => 14:00Z
+    expect(new Date(blocks[1].startMsUtc).toISOString()).toBe("2026-03-10T14:00:00.000Z");
   });
 });

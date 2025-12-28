@@ -21,9 +21,10 @@ const ALLOWLIST = "https://example.com";
 const baseEnv = {
   FREEBUSY_ICAL_URL: "https://upstream.example.com/feed.ics",
   RL_SALT: "salt",
-  PREFERRED_TIMEZONE: "America/New_York",
-  WORKING_SCHEDULE_JSON: JSON.stringify({
-    timeZone: "America/New_York",
+  CALENDAR_TIMEZONE: "America/New_York",
+  WINDOW_WEEKS: "4",
+  WEEK_START_DAY: "1",
+  WORKING_HOURS_JSON: JSON.stringify({
     weekly: [
       { dayOfWeek: 1, start: "08:00", end: "18:00" },
       { dayOfWeek: 2, start: "08:00", end: "18:00" },
@@ -37,7 +38,6 @@ const baseEnv = {
     get: vi.fn(() => ({ fetch: vi.fn(async () => new Response(JSON.stringify({ allowed: true, scopes: [] }))) } as any)),
   } as any,
   CORS_ALLOWLIST: ALLOWLIST,
-  MAXIMUM_FORWARD_WINDOW_IN_WEEKS: "4",
   RATE_LIMIT_WINDOW_MS: "300000",
   RATE_LIMIT_MAX: "60",
 };
@@ -89,7 +89,7 @@ describe("index handler", () => {
     const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const end = new Date(start.getTime() + 60 * 60 * 1000);
     vi.mocked(parseFreeBusy).mockReturnValue([
-      { start, end },
+      { startMsUtc: start.getTime(), endMsUtc: end.getTime(), kind: "time" },
     ]);
 
     (globalThis as any).fetch = vi.fn(async () => new Response("BEGIN:VFREEBUSY\nEND:VFREEBUSY", { headers: { "content-type": "text/calendar", "content-length": "30" } }));
@@ -102,12 +102,19 @@ describe("index handler", () => {
     expect(body.version.length).toBeGreaterThan(0);
     expect(Array.isArray(body.busy)).toBe(true);
     expect(body.busy.length).toBe(1);
-    expect(body.timezone).toBe("America/New_York");
-    expect(body.workingSchedule.timeZone).toBe("America/New_York");
-    expect(Array.isArray(body.workingSchedule.weekly)).toBe(true);
-    expect(typeof body.window.start).toBe("string");
-    expect(body.window.start).toMatch(/T00:00:00\.000[-+]\d{2}:\d{2}$/);
+    expect(body.generatedAtUtc).toMatch(/Z$/);
+    expect(body.calendar.timeZone).toBe("America/New_York");
+    expect(body.calendar.weekStartDay).toBe(1);
+    expect(body.window.startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(body.window.endDateInclusive).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(body.window.startUtc).toMatch(/Z$/);
+    expect(body.window.endUtcExclusive).toMatch(/Z$/);
+    expect(Array.isArray(body.workingHours.weekly)).toBe(true);
+    expect(body.busy[0].startUtc).toMatch(/Z$/);
+    expect(body.busy[0].endUtc).toMatch(/Z$/);
+    expect(body.busy[0].kind).toBe("time");
     expect(body.rateLimit.scopes.perIp.limit).toBe(60);
+    expect(body.rateLimit.scopes.perIp.resetUtc).toMatch(/Z$/);
   });
 
   it("returns 429 when rate limited", async () => {
@@ -125,9 +132,10 @@ describe("index handler", () => {
     expect(res.status).toBe(429);
     const body = (await res.json()) as any;
     expect(body.error).toBe("rate_limited");
+    expect(body.rateLimit.nextAllowedAtUtc).toMatch(/Z$/);
   });
 
-  it("respects PREFERRED_TIMEZONE for formatting", async () => {
+  it("uses CALENDAR_TIMEZONE but always returns UTC instants", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2025-01-15T12:00:00.000Z"));
 
@@ -138,19 +146,17 @@ describe("index handler", () => {
       scopes: { perIp: { label: "perIp", allowed: true, remaining: 1, reset: Date.now() + 1000, limit: 60, windowMs: 300000 } },
     });
 
-    // Deterministic winter offset for LA (PST, -08:00).
     const start = new Date("2025-01-16T00:30:00.000Z");
     const end = new Date("2025-01-16T01:30:00.000Z");
-    vi.mocked(parseFreeBusy).mockReturnValue([{ start, end }]);
+    vi.mocked(parseFreeBusy).mockReturnValue([{ startMsUtc: start.getTime(), endMsUtc: end.getTime(), kind: "time" }]);
 
     (globalThis as any).fetch = vi.fn(async () => new Response("BEGIN:VFREEBUSY\nEND:VFREEBUSY", { headers: { "content-type": "text/calendar", "content-length": "30" } }));
 
     const worker = await loadWorker();
     const env = {
       ...baseEnv,
-      PREFERRED_TIMEZONE: "America/Los_Angeles",
-      WORKING_SCHEDULE_JSON: JSON.stringify({
-        timeZone: "America/Los_Angeles",
+      CALENDAR_TIMEZONE: "America/Los_Angeles",
+      WORKING_HOURS_JSON: JSON.stringify({
         weekly: [
           { dayOfWeek: 1, start: "08:00", end: "18:00" },
           { dayOfWeek: 2, start: "08:00", end: "18:00" },
@@ -163,9 +169,8 @@ describe("index handler", () => {
     const res = await worker.fetch(request("/freebusy"), env as any);
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
-    expect(body.timezone).toBe("America/Los_Angeles");
-    expect(body.workingSchedule.timeZone).toBe("America/Los_Angeles");
-    expect(body.busy[0].start.endsWith("-08:00")).toBe(true);
+    expect(body.calendar.timeZone).toBe("America/Los_Angeles");
+    expect(body.busy[0].startUtc.endsWith("Z")).toBe(true);
 
     vi.useRealTimers();
   });

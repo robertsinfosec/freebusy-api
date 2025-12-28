@@ -43,6 +43,23 @@ function getZonedParts(date: Date, timeZone: string): ZonedParts {
   };
 }
 
+export type ZonedYmd = { year: number; month: number; day: number };
+
+export function formatYmd(ymd: ZonedYmd): string {
+  return `${ymd.year}-${pad2(ymd.month)}-${pad2(ymd.day)}`;
+}
+
+export function getZonedYmd(date: Date, timeZone: string): ZonedYmd {
+  const parts = getZonedParts(date, timeZone);
+  return { year: parts.year, month: parts.month, day: parts.day };
+}
+
+export function addDaysToZonedYmd(ymd: ZonedYmd, days: number): ZonedYmd {
+  const d = new Date(Date.UTC(ymd.year, ymd.month - 1, ymd.day));
+  d.setUTCDate(d.getUTCDate() + days);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
 function getOffsetMinutes(date: Date, timeZone: string): number {
   const zoned = getZonedParts(date, timeZone);
   const asUTC = Date.UTC(zoned.year, zoned.month - 1, zoned.day, zoned.hour, zoned.minute, zoned.second);
@@ -88,10 +105,27 @@ function localDateTimeToUtcMillis(local: LocalDateTime, timeZone: string): numbe
   return utcMillis;
 }
 
-function addDaysToYmd(ymd: { year: number; month: number; day: number }, days: number): { year: number; month: number; day: number } {
-  const d = new Date(Date.UTC(ymd.year, ymd.month - 1, ymd.day));
-  d.setUTCDate(d.getUTCDate() + days);
-  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+export function utcMillisFromZonedLocal(
+  local: { year: number; month: number; day: number; hour: number; minute: number; second?: number; millisecond?: number },
+  timeZone: string
+): number {
+  return localDateTimeToUtcMillis(
+    {
+      year: local.year,
+      month: local.month,
+      day: local.day,
+      hour: local.hour,
+      minute: local.minute,
+      second: local.second ?? 0,
+      millisecond: local.millisecond ?? 0,
+    },
+    timeZone
+  );
+}
+
+export function formatUtcIso(input: Date | number): string {
+  const date = typeof input === "number" ? new Date(input) : input;
+  return date.toISOString();
 }
 
 export function buildZonedWindow(forwardWeeks: number, now: Date, timeZone: string): { windowStart: Date; windowEnd: Date } {
@@ -106,7 +140,7 @@ export function buildZonedWindow(forwardWeeks: number, now: Date, timeZone: stri
   );
 
   const totalDays = forwardWeeks * 7;
-  const endYmd = addDaysToYmd(startYmd, totalDays - 1);
+  const endYmd = addDaysToZonedYmd(startYmd, totalDays - 1);
   const windowEnd = new Date(
     localDateTimeToUtcMillis(
       { ...endYmd, hour: 23, minute: 59, second: 59, millisecond: 999 },

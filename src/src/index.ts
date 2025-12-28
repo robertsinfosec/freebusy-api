@@ -1,25 +1,40 @@
 import { parseFreeBusy } from "./ical";
-import { buildWindow, clipAndMerge, toResponseBlocks } from "./freebusy";
-import { allowedOriginsFromEnv, Env, forwardWindowWeeksFromEnv, isFreeBusyEnabled, rateLimitConfigFromEnv, validateEnv, WorkingSchedule, workingScheduleFromEnv } from "./env";
-import { preferredTimezoneFromEnv } from "./env";
+import { buildWindowV2, clipAndMerge, toResponseBusy } from "./freebusy";
+import {
+  allowedOriginsFromEnv,
+  cacheTtlSecondsFromEnv,
+  calendarTimezoneFromEnv,
+  EnvValidationError,
+  Env,
+  isFreeBusyEnabled,
+  rateLimitConfigFromEnv,
+  upstreamMaxBytesFromEnv,
+  validateEnv,
+  weekStartDayFromEnv,
+  windowWeeksFromEnv,
+  WorkingHours,
+  workingHoursFromEnv,
+} from "./env";
 import { enforceRateLimit, RateLimitOutcome } from "./rateLimit";
 import { readLimitedText, redactUrl, sanitizeLogMessage } from "./logging";
 import { getBuildVersion } from "./version";
-import { formatIsoInTimeZone } from "./time";
+import { formatUtcIso } from "./time";
 
 interface CachedData {
   fetchedAt: number;
   busy: ReturnType<typeof parseFreeBusy>;
 }
 
-const CACHE_TTL_MS = 60_000;
 const UPSTREAM_FETCH_TIMEOUT_MS = 8_000;
-const MAX_UPSTREAM_BYTES = 1_500_000; // Cap upstream payload to avoid memory/CPU exhaustion.
 
 let allowedOriginsCache: Set<string> | null = null;
 let rateLimitConfigCache: ReturnType<typeof rateLimitConfigFromEnv> | null = null;
-let forwardWindowWeeksCache: number | null = null;
-let workingScheduleCache: WorkingSchedule | null = null;
+let windowWeeksCache: number | null = null;
+let weekStartDayCache: number | null = null;
+let calendarTimeZoneCache: string | null = null;
+let workingHoursCache: WorkingHours | null = null;
+let cacheTtlSecondsCache: number | null = null;
+let upstreamMaxBytesCache: number | null = null;
 
 function getAllowedOrigins(): Set<string> {
   if (!allowedOriginsCache) {
@@ -28,38 +43,57 @@ function getAllowedOrigins(): Set<string> {
   return allowedOriginsCache;
 }
 
-function getWorkingSchedule(): WorkingSchedule {
-  if (!workingScheduleCache) {
-    throw new Error("working schedule not initialized");
+function tryGetAllowedOrigins(): Set<string> | null {
+  try {
+    return getAllowedOrigins();
+  } catch {
+    return null;
   }
-  return workingScheduleCache;
 }
 
-function formatRateLimit(outcome: RateLimitOutcome, timeZone: string) {
-  const nowIso = formatIsoInTimeZone(new Date(), timeZone);
+function getWorkingHours(): WorkingHours {
+  if (!workingHoursCache) {
+    throw new Error("working hours not initialized");
+  }
+  return workingHoursCache;
+}
+
+function formatRateLimit(outcome: RateLimitOutcome) {
+  const nowIsoUtc = formatUtcIso(Date.now());
   const scopeEntries = Object.entries(outcome.scopes ?? {});
   const throttledResets = scopeEntries
     .filter(([, s]) => s.remaining === 0)
     .map(([, s]) => s.reset);
-  const nextAllowedAt = throttledResets.length ? formatIsoInTimeZone(new Date(Math.max(...throttledResets)), timeZone) : nowIso;
+  const nextAllowedAtUtc = throttledResets.length ? formatUtcIso(Math.max(...throttledResets)) : nowIsoUtc;
 
-  const scopes: Record<string, { remaining: number; reset: string; limit: number; windowMs: number }> = {};
+  const scopes: Record<string, { remaining: number; resetUtc: string; limit: number; windowMs: number }> = {};
   for (const [label, s] of scopeEntries) {
     scopes[label] = {
       remaining: s.remaining,
-      reset: formatIsoInTimeZone(new Date(s.reset), timeZone),
+      resetUtc: formatUtcIso(s.reset),
       limit: s.limit,
       windowMs: s.windowMs,
     };
   }
 
   return {
-    nextAllowedAt,
+    nextAllowedAtUtc,
     scopes,
   };
 }
 
 let cached: CachedData | null = null;
+
+function clearEnvCaches(): void {
+  allowedOriginsCache = null;
+  rateLimitConfigCache = null;
+  windowWeeksCache = null;
+  weekStartDayCache = null;
+  calendarTimeZoneCache = null;
+  workingHoursCache = null;
+  cacheTtlSecondsCache = null;
+  upstreamMaxBytesCache = null;
+}
 
 function baseHeaders(): Headers {
   const headers = new Headers();
@@ -88,20 +122,30 @@ function jsonResponse(request: Request, body: unknown, status = 200): Response {
   const origin = request.headers.get("Origin");
   const headers = baseHeaders();
   headers.set("Content-Type", "application/json");
-  const allowed = applyCors(headers, origin, getAllowedOrigins());
-  if (origin && !allowed) {
-    return new Response(JSON.stringify({ error: "forbidden_origin" }), { status: 403, headers });
+
+  const allowedOrigins = tryGetAllowedOrigins();
+  if (allowedOrigins) {
+    const allowed = applyCors(headers, origin, allowedOrigins);
+    if (origin && !allowed) {
+      return new Response(JSON.stringify({ error: "forbidden_origin" }), { status: 403, headers });
+    }
   }
   return new Response(JSON.stringify(body), { status, headers });
 }
 
 async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>> {
   const now = Date.now();
-  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
+
+  if (cacheTtlSecondsCache === null) {
+    throw new Error("cache ttl not initialized");
+  }
+
+  const cacheTtlMs = cacheTtlSecondsCache * 1000;
+  if (cached && now - cached.fetchedAt < cacheTtlMs) {
     return cached.busy;
   }
 
-  const preferredTimeZone = preferredTimezoneFromEnv(env);
+  const calendarTimeZone = calendarTimezoneFromEnv(env);
 
   const target = redactUrl(env.FREEBUSY_ICAL_URL);
   console.info("[freebusy] fetching upstream iCal", { target });
@@ -124,7 +168,11 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
     throw new Error("unexpected_content_type");
   }
 
-  const text = await readLimitedText(res, MAX_UPSTREAM_BYTES);
+  if (upstreamMaxBytesCache === null) {
+    throw new Error("upstream max bytes not initialized");
+  }
+
+  const text = await readLimitedText(res, upstreamMaxBytesCache);
   const diagnostics = {
     bytes: text.length,
     hasVfreebusy: /BEGIN:VFREEBUSY/i.test(text),
@@ -132,7 +180,7 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
   };
   console.info("[freebusy] upstream ical diagnostics", { target, ...diagnostics });
 
-  const busy = parseFreeBusy(text, (msg) => console.warn("[freebusy] parse warning", sanitizeLogMessage(msg)), preferredTimeZone);
+  const busy = parseFreeBusy(text, (msg) => console.warn("[freebusy] parse warning", sanitizeLogMessage(msg)), calendarTimeZone);
   console.info("[freebusy] parsed busy blocks", { count: busy.length });
   cached = { fetchedAt: now, busy };
   return busy;
@@ -141,7 +189,10 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
 async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
   const ip = request.headers.get("CF-Connecting-IP") ?? "0.0.0.0";
 
-  const preferredTimeZone = preferredTimezoneFromEnv(env);
+  if (calendarTimeZoneCache === null || weekStartDayCache === null || windowWeeksCache === null) {
+    throw new Error("calendar config not initialized");
+  }
+  const calendarTimeZone = calendarTimeZoneCache;
 
   let rateLimitOutcome: RateLimitOutcome | null = null;
   try {
@@ -150,11 +201,11 @@ async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
     }
     rateLimitOutcome = await enforceRateLimit(env, ip, rateLimitConfigCache);
     if (!rateLimitOutcome.allowed) {
-      return jsonResponse(request, { error: "rate_limited", rateLimit: formatRateLimit(rateLimitOutcome, preferredTimeZone) }, 429);
+      return jsonResponse(request, { error: "rate_limited", rateLimit: formatRateLimit(rateLimitOutcome) }, 429);
     }
   } catch (err) {
     console.error("rate limit failure", err);
-    return jsonResponse(request, { error: "upstream" }, 502);
+    return jsonResponse(request, { error: "upstream_error" }, 502);
   }
 
   let busy;
@@ -162,35 +213,37 @@ async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
     busy = await fetchUpstream(env);
   } catch (err) {
     console.error("upstream fetch error", err);
-    return jsonResponse(request, { error: "upstream" }, 502);
+    return jsonResponse(request, { error: "upstream_error" }, 502);
   }
 
   const now = new Date();
-  if (forwardWindowWeeksCache === null) {
-    throw new Error("forward window not initialized");
-  }
 
-  const { windowStart, windowEnd } = buildWindow(forwardWindowWeeksCache, now, preferredTimeZone);
+  const window = buildWindowV2(windowWeeksCache, now, calendarTimeZone);
 
   let merged;
   try {
-    merged = clipAndMerge(busy, windowStart, windowEnd);
+    merged = clipAndMerge(busy, window.startMsUtc, window.endMsUtcExclusive);
   } catch (err) {
     console.error("parse/merge error", err);
-    return jsonResponse(request, { error: "parse" }, 502);
+    return jsonResponse(request, { error: "upstream_error" }, 502);
   }
 
   const responseBody = {
     version: getBuildVersion(),
-    generatedAt: formatIsoInTimeZone(now, preferredTimeZone),
-    window: {
-      start: formatIsoInTimeZone(windowStart, preferredTimeZone),
-      end: formatIsoInTimeZone(windowEnd, preferredTimeZone),
+    generatedAtUtc: formatUtcIso(now),
+    calendar: {
+      timeZone: calendarTimeZone,
+      weekStartDay: weekStartDayCache,
     },
-    timezone: preferredTimeZone,
-    workingSchedule: getWorkingSchedule(),
-    busy: toResponseBlocks(merged, preferredTimeZone),
-    rateLimit: rateLimitOutcome ? formatRateLimit(rateLimitOutcome, preferredTimeZone) : undefined,
+    window: {
+      startDate: window.startDate,
+      endDateInclusive: window.endDateInclusive,
+      startUtc: formatUtcIso(window.startMsUtc),
+      endUtcExclusive: formatUtcIso(window.endMsUtcExclusive),
+    },
+    workingHours: getWorkingHours(),
+    busy: toResponseBusy(merged),
+    rateLimit: rateLimitOutcome ? formatRateLimit(rateLimitOutcome) : undefined,
   };
 
   return jsonResponse(request, responseBody, 200);
@@ -203,9 +256,13 @@ function handleHealth(request: Request): Response {
 async function handleOptions(request: Request): Promise<Response> {
   const origin = request.headers.get("Origin");
   const headers = baseHeaders();
-  const allowed = applyCors(headers, origin, getAllowedOrigins());
-  if (!allowed) {
-    return new Response(null, { status: 403, headers });
+
+  const allowedOrigins = tryGetAllowedOrigins();
+  if (allowedOrigins) {
+    const allowed = applyCors(headers, origin, allowedOrigins);
+    if (!allowed) {
+      return new Response(null, { status: 403, headers });
+    }
   }
   headers.set("Content-Length", "0");
   return new Response(null, { status: 204, headers });
@@ -217,16 +274,26 @@ export default {
     try {
       validatedEnv = validateEnv(env);
     } catch (err) {
-      console.error("env validation failed", err);
+      clearEnvCaches();
+      if (err instanceof EnvValidationError) {
+        console.error("env validation failed", { message: err.message, missing: err.missing, invalid: err.invalid });
+      } else {
+        console.error("env validation failed", err);
+      }
       return jsonResponse(request, { error: "misconfigured" }, 500);
     }
 
     try {
       allowedOriginsCache = allowedOriginsFromEnv(validatedEnv);
       rateLimitConfigCache = rateLimitConfigFromEnv(validatedEnv);
-      forwardWindowWeeksCache = forwardWindowWeeksFromEnv(validatedEnv);
-      workingScheduleCache = workingScheduleFromEnv(validatedEnv);
+      windowWeeksCache = windowWeeksFromEnv(validatedEnv);
+      weekStartDayCache = weekStartDayFromEnv(validatedEnv);
+      calendarTimeZoneCache = calendarTimezoneFromEnv(validatedEnv);
+      workingHoursCache = workingHoursFromEnv(validatedEnv);
+      cacheTtlSecondsCache = cacheTtlSecondsFromEnv(validatedEnv);
+      upstreamMaxBytesCache = upstreamMaxBytesFromEnv(validatedEnv);
     } catch (err) {
+      clearEnvCaches();
       console.error("env parsing failed", err);
       return jsonResponse(request, { error: "misconfigured" }, 500);
     }

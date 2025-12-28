@@ -21,14 +21,15 @@ Provide a production-ready, security-first Free/Busy aggregation API backed by a
 
 ## 5. Functional Requirements
 - Endpoints (per `openapi.yaml`):
-	- `GET /freebusy`: return merged, clipped busy intervals starting at 00:00:00 UTC today through the end of the configured forward window (weeks), in UTC.
+	- `GET /freebusy`: return merged, clipped busy intervals for an owner-day anchored window defined in `CALENDAR_TIMEZONE`, emitted as UTC instants.
 	- `GET /health`: liveness signal `{ ok: true }`.
 	- `OPTIONS /*`: CORS preflight with allowlist enforcement.
 	- Unknown routes return JSON `404 not_found`.
 - Upstream ingest: fetch private `FREEBUSY_ICAL_URL` over HTTPS; reject non-2xx or non-calendar content types.
 - Upstream ingest: fetch private `FREEBUSY_ICAL_URL` over HTTPS; reject non-2xx or non-calendar content types; enforce payload cap (1.5 MB) before parsing.
 - Parsing: support `VFREEBUSY/FREEBUSY` and `VEVENT` with `DTSTART/DTEND/DURATION`, line unfolding, TZID handling, and all-day events.
-- Normalization: clip to `today 00:00:00Z → end of configured forward window (weeks)`; merge overlapping/adjacent blocks; emit ISO UTC strings.
+
+- Normalization: compute a window anchored to owner-local dates in `CALENDAR_TIMEZONE` and return both owner dates (`startDate`, `endDateInclusive`) and deterministic UTC instants (`startUtc`, `endUtcExclusive`); merge overlapping/adjacent blocks; emit ISO UTC strings (`...Z`).
 	- Response metadata: successful `/freebusy` responses include a `version` field (build identifier; typically `YY.MMDD.HHmm`) to help clients correlate behavior with deployments.
 - Caching: cache upstream parse results for 60 seconds to reduce load.
 - Feature flag: `FREEBUSY_ENABLED` disables `/freebusy` with 503.
@@ -52,11 +53,16 @@ Provide a production-ready, security-first Free/Busy aggregation API backed by a
 ## 8. Configuration
 - `FREEBUSY_ICAL_URL`: required, HTTPS iCal feed.
 - `RL_SALT`: required, random secret for IP hashing.
-- `MAXIMUM_FORWARD_WINDOW_IN_WEEKS`: required, integer > 0.
+- `CALENDAR_TIMEZONE`: required, IANA timezone for the calendar owner.
+- `WINDOW_WEEKS`: required, integer > 0.
+- `WEEK_START_DAY`: optional, integer 1..7 (ISO week start day for UI alignment; defaults to 1).
 - `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`: required per-IP rate-limit window and max.
 - `RATE_LIMIT_GLOBAL_WINDOW_MS`, `RATE_LIMIT_GLOBAL_MAX`: optional global limit (all requests); must be provided together to enable.
 - `CORS_ALLOWLIST`: required comma-separated origins.
 - `FREEBUSY_ENABLED`: optional toggle (defaults to enabled).
+- `WORKING_HOURS_JSON`: required JSON weekly schedule in owner-local time.
+- `CACHE_TTL_SECONDS`: optional cache TTL for upstream parsing (seconds).
+- `UPSTREAM_MAX_BYTES`: optional maximum upstream payload size (bytes).
 - `RATE_LIMITER`: required Durable Object namespace.
 
 ## 9. Security and Abuse Mitigations (Security-First)

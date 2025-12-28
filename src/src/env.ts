@@ -2,9 +2,17 @@ export interface Env {
   FREEBUSY_ICAL_URL: string;
   RL_SALT: string;
   RATE_LIMITER: DurableObjectNamespace;
-  MAXIMUM_FORWARD_WINDOW_IN_WEEKS: string;
-  PREFERRED_TIMEZONE: string;
-  WORKING_SCHEDULE_JSON: string;
+
+  // v2 calendar/time semantics
+  CALENDAR_TIMEZONE: string;
+  WINDOW_WEEKS: string;
+  WEEK_START_DAY?: string;
+  WORKING_HOURS_JSON: string;
+
+  // Safety limits / caching
+  CACHE_TTL_SECONDS?: string;
+  UPSTREAM_MAX_BYTES?: string;
+
   FREEBUSY_ENABLED?: string;
   CORS_ALLOWLIST?: string;
   RATE_LIMIT_WINDOW_MS?: string;
@@ -13,7 +21,7 @@ export interface Env {
   RATE_LIMIT_GLOBAL_MAX?: string;
 }
 
-export interface WorkingScheduleWeeklyEntry {
+export interface WorkingHoursWeeklyEntry {
   // ISO-8601 day-of-week: 1=Monday ... 7=Sunday
   dayOfWeek: number;
   // 24h local time in HH:MM
@@ -21,13 +29,28 @@ export interface WorkingScheduleWeeklyEntry {
   end: string;
 }
 
-export interface WorkingSchedule {
-  timeZone: string;
-  weekly: WorkingScheduleWeeklyEntry[];
+export interface WorkingHours {
+  weekly: WorkingHoursWeeklyEntry[];
+}
+
+export class EnvValidationError extends Error {
+  public readonly missing: string[];
+  public readonly invalid: string[];
+
+  constructor(message: string, details: { missing?: string[]; invalid?: string[] } = {}) {
+    super(message);
+    this.name = "EnvValidationError";
+    this.missing = details.missing ?? [];
+    this.invalid = details.invalid ?? [];
+  }
 }
 
 const MAX_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000; // Hard ceiling to prevent runaway windows.
 const MAX_FORWARD_WINDOW_WEEKS = 104; // Safety guardrail (two years).
+const MAX_CACHE_TTL_SECONDS = 60 * 60; // 1 hour
+const DEFAULT_CACHE_TTL_SECONDS = 60;
+const DEFAULT_UPSTREAM_MAX_BYTES = 1_500_000;
+const MAX_UPSTREAM_BYTES = 10_000_000;
 
 function isDurableObjectNamespace(value: unknown): value is DurableObjectNamespace {
   return (
@@ -41,6 +64,17 @@ function isDurableObjectNamespace(value: unknown): value is DurableObjectNamespa
 function parseRequiredPositiveInt(name: string, raw: string | undefined, max: number = Number.MAX_SAFE_INTEGER): number {
   if (raw === undefined) {
     throw new Error(`missing ${name}`);
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`invalid ${name}`);
+  }
+  return Math.min(parsed, max);
+}
+
+function parseOptionalPositiveInt(name: string, raw: string | undefined, defaultValue: number, max: number = Number.MAX_SAFE_INTEGER): number {
+  if (raw === undefined || String(raw).trim() === "") {
+    return defaultValue;
   }
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -67,56 +101,55 @@ function parseRequiredList(name: string, raw: string | undefined): Set<string> {
  * Validates and narrows the worker environment bindings, throwing on any missing or malformed values.
  */
 export function validateEnv(env: Partial<Env>): Env {
-  if (!env.FREEBUSY_ICAL_URL || typeof env.FREEBUSY_ICAL_URL !== "string") {
-    throw new Error("missing FREEBUSY_ICAL_URL");
-  }
-  if (!env.RL_SALT || typeof env.RL_SALT !== "string") {
-    throw new Error("missing RL_SALT");
-  }
-  if (!env.MAXIMUM_FORWARD_WINDOW_IN_WEEKS || typeof env.MAXIMUM_FORWARD_WINDOW_IN_WEEKS !== "string") {
-    throw new Error("missing MAXIMUM_FORWARD_WINDOW_IN_WEEKS");
-  }
-  if (!env.PREFERRED_TIMEZONE || typeof env.PREFERRED_TIMEZONE !== "string") {
-    throw new Error("missing PREFERRED_TIMEZONE");
-  }
-  if (!env.WORKING_SCHEDULE_JSON || typeof env.WORKING_SCHEDULE_JSON !== "string") {
-    throw new Error("missing WORKING_SCHEDULE_JSON");
-  }
-  if (!isDurableObjectNamespace(env.RATE_LIMITER)) {
-    throw new Error("missing RATE_LIMITER binding");
+  const missing: string[] = [];
+  const invalid: string[] = [];
+
+  if (!env.FREEBUSY_ICAL_URL || typeof env.FREEBUSY_ICAL_URL !== "string") missing.push("FREEBUSY_ICAL_URL");
+  if (!env.RL_SALT || typeof env.RL_SALT !== "string") missing.push("RL_SALT");
+  if (!env.CALENDAR_TIMEZONE || typeof env.CALENDAR_TIMEZONE !== "string") missing.push("CALENDAR_TIMEZONE");
+  if (!env.WINDOW_WEEKS || typeof env.WINDOW_WEEKS !== "string") missing.push("WINDOW_WEEKS");
+  if (!env.WORKING_HOURS_JSON || typeof env.WORKING_HOURS_JSON !== "string") missing.push("WORKING_HOURS_JSON");
+  if (!isDurableObjectNamespace(env.RATE_LIMITER)) missing.push("RATE_LIMITER(binding)");
+
+  if (missing.length) {
+    throw new EnvValidationError("missing required environment bindings", { missing });
   }
 
   // Basic URL validation without exposing the secret value.
   try {
     // eslint-disable-next-line no-new
-    new URL(env.FREEBUSY_ICAL_URL);
+    new URL(env.FREEBUSY_ICAL_URL!);
   } catch {
-    throw new Error("invalid FREEBUSY_ICAL_URL");
+    invalid.push("FREEBUSY_ICAL_URL");
   }
 
   // Validate timezone identifier early so we fail-fast on misconfiguration.
   try {
     // eslint-disable-next-line no-new
-    new Intl.DateTimeFormat("en-US", { timeZone: env.PREFERRED_TIMEZONE });
+    new Intl.DateTimeFormat("en-US", { timeZone: env.CALENDAR_TIMEZONE! });
   } catch {
-    throw new Error("invalid PREFERRED_TIMEZONE");
+    invalid.push("CALENDAR_TIMEZONE");
   }
 
-  // Validate working schedule JSON is parseable and consistent.
+  // Validate working hours JSON is parseable.
   try {
-    const parsed = JSON.parse(env.WORKING_SCHEDULE_JSON) as unknown;
+    const parsed = JSON.parse(env.WORKING_HOURS_JSON!) as unknown;
     if (!parsed || typeof parsed !== "object") {
       throw new Error("not_object");
     }
   } catch {
-    throw new Error("invalid WORKING_SCHEDULE_JSON");
+    invalid.push("WORKING_HOURS_JSON");
+  }
+
+  if (invalid.length) {
+    throw new EnvValidationError("invalid environment values", { invalid });
   }
 
   return env as Env;
 }
 
-export function preferredTimezoneFromEnv(env: Env): string {
-  return env.PREFERRED_TIMEZONE;
+export function calendarTimezoneFromEnv(env: Env): string {
+  return env.CALENDAR_TIMEZONE;
 }
 
 function parseLocalTimeHm(value: string): { minutes: number } | null {
@@ -131,53 +164,55 @@ function parseLocalTimeHm(value: string): { minutes: number } | null {
   return { minutes: hour * 60 + minute };
 }
 
-export function workingScheduleFromEnv(env: Env): WorkingSchedule {
+export function weekStartDayFromEnv(env: Env): number {
+  const raw = env.WEEK_START_DAY;
+  if (raw === undefined || String(raw).trim() === "") return 1;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 7) {
+    throw new Error("invalid WEEK_START_DAY");
+  }
+  return parsed;
+}
+
+export function cacheTtlSecondsFromEnv(env: Env): number {
+  return parseOptionalPositiveInt("CACHE_TTL_SECONDS", env.CACHE_TTL_SECONDS, DEFAULT_CACHE_TTL_SECONDS, MAX_CACHE_TTL_SECONDS);
+}
+
+export function upstreamMaxBytesFromEnv(env: Env): number {
+  return parseOptionalPositiveInt("UPSTREAM_MAX_BYTES", env.UPSTREAM_MAX_BYTES, DEFAULT_UPSTREAM_MAX_BYTES, MAX_UPSTREAM_BYTES);
+}
+
+export function workingHoursFromEnv(env: Env): WorkingHours {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(env.WORKING_SCHEDULE_JSON);
+    parsed = JSON.parse(env.WORKING_HOURS_JSON);
   } catch {
-    throw new Error("invalid WORKING_SCHEDULE_JSON");
+    throw new Error("invalid WORKING_HOURS_JSON");
   }
 
   if (!parsed || typeof parsed !== "object") {
-    throw new Error("invalid WORKING_SCHEDULE_JSON");
+    throw new Error("invalid WORKING_HOURS_JSON");
   }
 
-  const obj = parsed as { timeZone?: unknown; weekly?: unknown };
-  const timeZone = typeof obj.timeZone === "string" ? obj.timeZone : undefined;
-  if (!timeZone) {
-    throw new Error("invalid WORKING_SCHEDULE_JSON");
-  }
-
-  // Require schedule timezone to match output timezone to avoid ambiguity.
-  if (timeZone !== env.PREFERRED_TIMEZONE) {
-    throw new Error("invalid WORKING_SCHEDULE_JSON");
-  }
-
-  try {
-    // eslint-disable-next-line no-new
-    new Intl.DateTimeFormat("en-US", { timeZone });
-  } catch {
-    throw new Error("invalid WORKING_SCHEDULE_JSON");
-  }
+  const obj = parsed as { weekly?: unknown };
 
   if (!Array.isArray(obj.weekly) || obj.weekly.length === 0) {
-    throw new Error("invalid WORKING_SCHEDULE_JSON");
+    throw new Error("invalid WORKING_HOURS_JSON");
   }
 
   const seenDays = new Set<number>();
-  const weekly: WorkingScheduleWeeklyEntry[] = obj.weekly.map((entry) => {
+  const weekly: WorkingHoursWeeklyEntry[] = obj.weekly.map((entry) => {
     if (!entry || typeof entry !== "object") {
-      throw new Error("invalid WORKING_SCHEDULE_JSON");
+      throw new Error("invalid WORKING_HOURS_JSON");
     }
 
     const e = entry as { dayOfWeek?: unknown; start?: unknown; end?: unknown };
     const dayOfWeek = typeof e.dayOfWeek === "number" ? e.dayOfWeek : NaN;
     if (!Number.isInteger(dayOfWeek) || dayOfWeek < 1 || dayOfWeek > 7) {
-      throw new Error("invalid WORKING_SCHEDULE_JSON");
+      throw new Error("invalid WORKING_HOURS_JSON");
     }
     if (seenDays.has(dayOfWeek)) {
-      throw new Error("invalid WORKING_SCHEDULE_JSON");
+      throw new Error("invalid WORKING_HOURS_JSON");
     }
     seenDays.add(dayOfWeek);
 
@@ -186,16 +221,16 @@ export function workingScheduleFromEnv(env: Env): WorkingSchedule {
     const start = parseLocalTimeHm(startRaw);
     const end = parseLocalTimeHm(endRaw);
     if (!start || !end) {
-      throw new Error("invalid WORKING_SCHEDULE_JSON");
+      throw new Error("invalid WORKING_HOURS_JSON");
     }
     if (end.minutes <= start.minutes) {
-      throw new Error("invalid WORKING_SCHEDULE_JSON");
+      throw new Error("invalid WORKING_HOURS_JSON");
     }
 
     return { dayOfWeek, start: startRaw, end: endRaw };
   });
 
-  return { timeZone, weekly };
+  return { weekly };
 }
 
 /**
@@ -253,6 +288,6 @@ export function rateLimitConfigFromEnv(env: Env): RateLimitConfig {
 /**
  * Parses the forward-looking window (in weeks) for free/busy responses.
  */
-export function forwardWindowWeeksFromEnv(env: Env): number {
-  return parseRequiredPositiveInt("MAXIMUM_FORWARD_WINDOW_IN_WEEKS", env.MAXIMUM_FORWARD_WINDOW_IN_WEEKS, MAX_FORWARD_WINDOW_WEEKS);
+export function windowWeeksFromEnv(env: Env): number {
+  return parseRequiredPositiveInt("WINDOW_WEEKS", env.WINDOW_WEEKS, MAX_FORWARD_WINDOW_WEEKS);
 }
