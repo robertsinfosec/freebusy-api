@@ -5,7 +5,7 @@ Operational steps for routine maintenance and incident response for the Freebusy
 
 ## 1) Secrets and Env Management
 - Prod/Stage: set via `wrangler secret put` in the `src` directory:
-  - Required: `FREEBUSY_ICAL_URL`, `RL_SALT`, `PREFERRED_TIMEZONE`, `MAXIMUM_FORWARD_WINDOW_IN_WEEKS`, `CORS_ALLOWLIST`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`
+  - Required: `FREEBUSY_ICAL_URL`, `RL_SALT`, `PREFERRED_TIMEZONE`, `WORKING_SCHEDULE_JSON`, `MAXIMUM_FORWARD_WINDOW_IN_WEEKS`, `CORS_ALLOWLIST`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`
   - Optional (must be paired): `RATE_LIMIT_GLOBAL_WINDOW_MS`, `RATE_LIMIT_GLOBAL_MAX`
   - Optional flag: `FREEBUSY_ENABLED`
 - Local: copy `src/.env.example` to `src/.env` and fill with non-prod values; keep required vars populated.

@@ -50,7 +50,34 @@ function getOffsetMinutes(date: Date, timeZone: string): number {
   return (asUTC - date.getTime()) / 60000;
 }
 
-function parseICalDate(value: string, tzid: string | undefined, isDateOnly: boolean, warn: (msg: string) => void): Date | null {
+type Ymd = { year: number; month: number; day: number };
+
+function parseYmd(value: string): Ymd | null {
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (!match) return null;
+  const [, y, mo, d] = match;
+  return { year: Number(y), month: Number(mo), day: Number(d) };
+}
+
+function ymdToString(ymd: Ymd): string {
+  const mm = String(ymd.month).padStart(2, "0");
+  const dd = String(ymd.day).padStart(2, "0");
+  return `${ymd.year}${mm}${dd}`;
+}
+
+function addDaysToYmd(ymd: Ymd, days: number): Ymd {
+  const d = new Date(Date.UTC(ymd.year, ymd.month - 1, ymd.day));
+  d.setUTCDate(d.getUTCDate() + days);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
+function parseICalDate(
+  value: string,
+  tzid: string | undefined,
+  isDateOnly: boolean,
+  warn: (msg: string) => void,
+  defaultTimeZone?: string
+): Date | null {
   const dateOnly = isDateOnly || !value.includes("T");
 
   const match = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
@@ -68,13 +95,14 @@ function parseICalDate(value: string, tzid: string | undefined, isDateOnly: bool
     return new Date(Date.UTC(year, month, day, hour, minute, second));
   }
 
-  if (tzid) {
+  const effectiveTzid = tzid ?? (dateOnly ? defaultTimeZone : undefined);
+  if (effectiveTzid) {
     try {
       const utcMillis = Date.UTC(year, month, day, hour, minute, second);
-      const offsetMinutes = getOffsetMinutes(new Date(utcMillis), tzid);
+      const offsetMinutes = getOffsetMinutes(new Date(utcMillis), effectiveTzid);
       return new Date(utcMillis - offsetMinutes * 60_000);
     } catch (err) {
-      warn(`Failed TZ conversion for ${tzid}: ${String(err)}`);
+      warn(`Failed TZ conversion for ${effectiveTzid}: ${String(err)}`);
     }
   }
 
@@ -150,10 +178,10 @@ function parseFreeBusyComponents(unfolded: string[], warn: (msg: string) => void
   return busy;
 }
 
-function parseEventComponents(unfolded: string[], warn: (msg: string) => void): BusyBlock[] {
+function parseEventComponents(unfolded: string[], warn: (msg: string) => void, defaultTimeZone?: string): BusyBlock[] {
   const events: BusyBlock[] = [];
   let inEvent = false;
-  let current: { start?: Date; end?: Date; startIsDateOnly?: boolean } = {};
+  let current: { start?: Date; end?: Date; startIsDateOnly?: boolean; startYmd?: Ymd; startTimeZone?: string } = {};
   let currentDuration: number | undefined;
 
   for (const line of unfolded) {
@@ -170,7 +198,9 @@ function parseEventComponents(unfolded: string[], warn: (msg: string) => void): 
         const isAllDay = Boolean(current.startIsDateOnly);
         const durationMs = currentDuration;
         const defaultEnd = isAllDay
-          ? new Date(current.start.getTime() + DAY_MS)
+          ? current.startYmd && current.startTimeZone
+            ? parseICalDate(ymdToString(addDaysToYmd(current.startYmd, 1)), current.startTimeZone, true, warn)
+            : new Date(current.start.getTime() + DAY_MS)
           : new Date(current.start.getTime() + 60 * 60 * 1000);
         const endValue = current.end
           ? current.end
@@ -179,10 +209,12 @@ function parseEventComponents(unfolded: string[], warn: (msg: string) => void): 
             : defaultEnd;
 
         const end = isAllDay && endValue.getTime() === current.start.getTime()
-          ? new Date(current.start.getTime() + DAY_MS)
+          ? current.startYmd && current.startTimeZone
+            ? parseICalDate(ymdToString(addDaysToYmd(current.startYmd, 1)), current.startTimeZone, true, warn)
+            : new Date(current.start.getTime() + DAY_MS)
           : endValue;
 
-        if (end > current.start) {
+        if (end && end > current.start) {
           events.push({ start: current.start, end });
         }
       }
@@ -197,10 +229,14 @@ function parseEventComponents(unfolded: string[], warn: (msg: string) => void): 
       const isDateOnly = upper.includes("VALUE=DATE") || !line.includes("T");
       const dateMatch = line.match(/[:;](\d{8}(T\d{6}Z?)?)/);
       if (dateMatch) {
-        const parsed = parseICalDate(dateMatch[1], tzidMatch?.[1], isDateOnly, warn);
+        const parsed = parseICalDate(dateMatch[1], tzidMatch?.[1], isDateOnly, warn, defaultTimeZone);
         if (parsed) {
           current.start = parsed;
           current.startIsDateOnly = isDateOnly;
+          if (isDateOnly) {
+            current.startYmd = parseYmd(dateMatch[1]);
+            current.startTimeZone = tzidMatch?.[1] ?? defaultTimeZone;
+          }
         }
       }
     } else if (upper.startsWith("DTEND")) {
@@ -208,7 +244,7 @@ function parseEventComponents(unfolded: string[], warn: (msg: string) => void): 
       const isDateOnly = upper.includes("VALUE=DATE") || !line.includes("T");
       const dateMatch = line.match(/[:;](\d{8}(T\d{6}Z?)?)/);
       if (dateMatch) {
-        const parsed = parseICalDate(dateMatch[1], tzidMatch?.[1], isDateOnly, warn);
+        const parsed = parseICalDate(dateMatch[1], tzidMatch?.[1], isDateOnly, warn, defaultTimeZone);
         if (parsed) {
           current.end = parsed;
         }
@@ -224,9 +260,9 @@ function parseEventComponents(unfolded: string[], warn: (msg: string) => void): 
   return events;
 }
 
-export function parseFreeBusy(icalText: string, warn: (msg: string) => void = () => {}): BusyBlock[] {
+export function parseFreeBusy(icalText: string, warn: (msg: string) => void = () => {}, defaultTimeZone?: string): BusyBlock[] {
   const unfolded = unfoldLines(icalText);
   const busyFromFreeBusy = parseFreeBusyComponents(unfolded, warn);
-  const busyFromEvents = parseEventComponents(unfolded, warn);
+  const busyFromEvents = parseEventComponents(unfolded, warn, defaultTimeZone);
   return [...busyFromFreeBusy, ...busyFromEvents];
 }

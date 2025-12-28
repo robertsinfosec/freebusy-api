@@ -22,6 +22,16 @@ const baseEnv = {
   FREEBUSY_ICAL_URL: "https://upstream.example.com/feed.ics",
   RL_SALT: "salt",
   PREFERRED_TIMEZONE: "America/New_York",
+  WORKING_SCHEDULE_JSON: JSON.stringify({
+    timeZone: "America/New_York",
+    weekly: [
+      { dayOfWeek: 1, start: "08:00", end: "18:00" },
+      { dayOfWeek: 2, start: "08:00", end: "18:00" },
+      { dayOfWeek: 3, start: "08:00", end: "18:00" },
+      { dayOfWeek: 4, start: "08:00", end: "18:00" },
+      { dayOfWeek: 5, start: "08:00", end: "18:00" },
+    ],
+  }),
   RATE_LIMITER: {
     idFromName: vi.fn(() => ({})),
     get: vi.fn(() => ({ fetch: vi.fn(async () => new Response(JSON.stringify({ allowed: true, scopes: [] }))) } as any)),
@@ -93,6 +103,8 @@ describe("index handler", () => {
     expect(Array.isArray(body.busy)).toBe(true);
     expect(body.busy.length).toBe(1);
     expect(body.timezone).toBe("America/New_York");
+    expect(body.workingSchedule.timeZone).toBe("America/New_York");
+    expect(Array.isArray(body.workingSchedule.weekly)).toBe(true);
     expect(typeof body.window.start).toBe("string");
     expect(body.window.start).toMatch(/T00:00:00\.000[-+]\d{2}:\d{2}$/);
     expect(body.rateLimit.scopes.perIp.limit).toBe(60);
@@ -134,11 +146,25 @@ describe("index handler", () => {
     (globalThis as any).fetch = vi.fn(async () => new Response("BEGIN:VFREEBUSY\nEND:VFREEBUSY", { headers: { "content-type": "text/calendar", "content-length": "30" } }));
 
     const worker = await loadWorker();
-    const env = { ...baseEnv, PREFERRED_TIMEZONE: "America/Los_Angeles" };
+    const env = {
+      ...baseEnv,
+      PREFERRED_TIMEZONE: "America/Los_Angeles",
+      WORKING_SCHEDULE_JSON: JSON.stringify({
+        timeZone: "America/Los_Angeles",
+        weekly: [
+          { dayOfWeek: 1, start: "08:00", end: "18:00" },
+          { dayOfWeek: 2, start: "08:00", end: "18:00" },
+          { dayOfWeek: 3, start: "08:00", end: "18:00" },
+          { dayOfWeek: 4, start: "08:00", end: "18:00" },
+          { dayOfWeek: 5, start: "08:00", end: "18:00" },
+        ],
+      }),
+    };
     const res = await worker.fetch(request("/freebusy"), env as any);
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
     expect(body.timezone).toBe("America/Los_Angeles");
+    expect(body.workingSchedule.timeZone).toBe("America/Los_Angeles");
     expect(body.busy[0].start.endsWith("-08:00")).toBe(true);
 
     vi.useRealTimers();

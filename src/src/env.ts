@@ -4,12 +4,26 @@ export interface Env {
   RATE_LIMITER: DurableObjectNamespace;
   MAXIMUM_FORWARD_WINDOW_IN_WEEKS: string;
   PREFERRED_TIMEZONE: string;
+  WORKING_SCHEDULE_JSON: string;
   FREEBUSY_ENABLED?: string;
   CORS_ALLOWLIST?: string;
   RATE_LIMIT_WINDOW_MS?: string;
   RATE_LIMIT_MAX?: string;
   RATE_LIMIT_GLOBAL_WINDOW_MS?: string;
   RATE_LIMIT_GLOBAL_MAX?: string;
+}
+
+export interface WorkingScheduleWeeklyEntry {
+  // ISO-8601 day-of-week: 1=Monday ... 7=Sunday
+  dayOfWeek: number;
+  // 24h local time in HH:MM
+  start: string;
+  end: string;
+}
+
+export interface WorkingSchedule {
+  timeZone: string;
+  weekly: WorkingScheduleWeeklyEntry[];
 }
 
 const MAX_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000; // Hard ceiling to prevent runaway windows.
@@ -65,6 +79,9 @@ export function validateEnv(env: Partial<Env>): Env {
   if (!env.PREFERRED_TIMEZONE || typeof env.PREFERRED_TIMEZONE !== "string") {
     throw new Error("missing PREFERRED_TIMEZONE");
   }
+  if (!env.WORKING_SCHEDULE_JSON || typeof env.WORKING_SCHEDULE_JSON !== "string") {
+    throw new Error("missing WORKING_SCHEDULE_JSON");
+  }
   if (!isDurableObjectNamespace(env.RATE_LIMITER)) {
     throw new Error("missing RATE_LIMITER binding");
   }
@@ -85,11 +102,100 @@ export function validateEnv(env: Partial<Env>): Env {
     throw new Error("invalid PREFERRED_TIMEZONE");
   }
 
+  // Validate working schedule JSON is parseable and consistent.
+  try {
+    const parsed = JSON.parse(env.WORKING_SCHEDULE_JSON) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("not_object");
+    }
+  } catch {
+    throw new Error("invalid WORKING_SCHEDULE_JSON");
+  }
+
   return env as Env;
 }
 
 export function preferredTimezoneFromEnv(env: Env): string {
   return env.PREFERRED_TIMEZONE;
+}
+
+function parseLocalTimeHm(value: string): { minutes: number } | null {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (hour < 0 || hour > 23) return null;
+  if (minute < 0 || minute > 59) return null;
+  return { minutes: hour * 60 + minute };
+}
+
+export function workingScheduleFromEnv(env: Env): WorkingSchedule {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(env.WORKING_SCHEDULE_JSON);
+  } catch {
+    throw new Error("invalid WORKING_SCHEDULE_JSON");
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("invalid WORKING_SCHEDULE_JSON");
+  }
+
+  const obj = parsed as { timeZone?: unknown; weekly?: unknown };
+  const timeZone = typeof obj.timeZone === "string" ? obj.timeZone : undefined;
+  if (!timeZone) {
+    throw new Error("invalid WORKING_SCHEDULE_JSON");
+  }
+
+  // Require schedule timezone to match output timezone to avoid ambiguity.
+  if (timeZone !== env.PREFERRED_TIMEZONE) {
+    throw new Error("invalid WORKING_SCHEDULE_JSON");
+  }
+
+  try {
+    // eslint-disable-next-line no-new
+    new Intl.DateTimeFormat("en-US", { timeZone });
+  } catch {
+    throw new Error("invalid WORKING_SCHEDULE_JSON");
+  }
+
+  if (!Array.isArray(obj.weekly) || obj.weekly.length === 0) {
+    throw new Error("invalid WORKING_SCHEDULE_JSON");
+  }
+
+  const seenDays = new Set<number>();
+  const weekly: WorkingScheduleWeeklyEntry[] = obj.weekly.map((entry) => {
+    if (!entry || typeof entry !== "object") {
+      throw new Error("invalid WORKING_SCHEDULE_JSON");
+    }
+
+    const e = entry as { dayOfWeek?: unknown; start?: unknown; end?: unknown };
+    const dayOfWeek = typeof e.dayOfWeek === "number" ? e.dayOfWeek : NaN;
+    if (!Number.isInteger(dayOfWeek) || dayOfWeek < 1 || dayOfWeek > 7) {
+      throw new Error("invalid WORKING_SCHEDULE_JSON");
+    }
+    if (seenDays.has(dayOfWeek)) {
+      throw new Error("invalid WORKING_SCHEDULE_JSON");
+    }
+    seenDays.add(dayOfWeek);
+
+    const startRaw = typeof e.start === "string" ? e.start : "";
+    const endRaw = typeof e.end === "string" ? e.end : "";
+    const start = parseLocalTimeHm(startRaw);
+    const end = parseLocalTimeHm(endRaw);
+    if (!start || !end) {
+      throw new Error("invalid WORKING_SCHEDULE_JSON");
+    }
+    if (end.minutes <= start.minutes) {
+      throw new Error("invalid WORKING_SCHEDULE_JSON");
+    }
+
+    return { dayOfWeek, start: startRaw, end: endRaw };
+  });
+
+  return { timeZone, weekly };
 }
 
 /**

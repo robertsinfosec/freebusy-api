@@ -99,6 +99,21 @@ describe("parseFreeBusy", () => {
     expect(blocks[0].end.toISOString()).toBe("2025-12-25T00:00:00.000Z");
   });
 
+  it("parses VEVENT all-day (VALUE=DATE) using default timezone when TZID is missing", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART;VALUE=DATE:20260101",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warn, "America/New_York");
+    expect(blocks).toHaveLength(1);
+    // Local midnight ET is 05:00Z in winter.
+    expect(blocks[0].start.toISOString()).toBe("2026-01-01T05:00:00.000Z");
+    // All-day implicit end is next local midnight (half-open interval).
+    expect(blocks[0].end.toISOString()).toBe("2026-01-02T05:00:00.000Z");
+  });
+
   it("parses VEVENT with TZID and converts to UTC", () => {
     const ical = [
       "BEGIN:VEVENT",

@@ -82,7 +82,7 @@ paths:
       operationId: getFreebusy
       responses:
         "200":
-          description: Successfully returned normalized free/busy data in America/New_York
+          description: Successfully returned normalized free/busy data in the configured PREFERRED_TIMEZONE
           content:
             application/json:
               schema:
@@ -96,6 +96,24 @@ paths:
                       start: "2024-01-15T00:00:00.000-05:00"
                       end: "2024-02-11T23:59:59.999-05:00"
                     timezone: "America/New_York"
+                    workingSchedule:
+                      timeZone: "America/New_York"
+                      weekly:
+                        - dayOfWeek: 1
+                          start: "08:00"
+                          end: "18:00"
+                        - dayOfWeek: 2
+                          start: "08:00"
+                          end: "18:00"
+                        - dayOfWeek: 3
+                          start: "08:00"
+                          end: "18:00"
+                        - dayOfWeek: 4
+                          start: "08:00"
+                          end: "18:00"
+                        - dayOfWeek: 5
+                          start: "08:00"
+                          end: "18:00"
                     busy:
                       - start: "2024-01-16T04:00:00.000-05:00"
                         end: "2024-01-16T05:30:00.000-05:00"
@@ -128,11 +146,11 @@ paths:
                   value:
                     error: "rate_limited"
                     rateLimit:
-                      nextAllowedAt: "2024-01-15T12:05:00.000Z"
+                      nextAllowedAt: "2024-01-15T07:05:00.000-05:00"
                       scopes:
                         perIp:
                           remaining: 0
-                          reset: "2024-01-15T12:05:00.000Z"
+                          reset: "2024-01-15T07:05:00.000-05:00"
                           limit: 60
                           windowMs: 300000
         "502":
@@ -177,41 +195,72 @@ paths:
                 not_found: { value: { error: "not_found" } }
 components:
   schemas:
+    WorkingScheduleWeeklyEntry:
+      type: object
+      description: Weekly working-hours entry (local times) in the configured timezone.
+      properties:
+        dayOfWeek:
+          type: integer
+          minimum: 1
+          maximum: 7
+          description: ISO day-of-week where 1=Monday and 7=Sunday.
+        start:
+          type: string
+          description: Local start time in HH:MM (24-hour clock).
+          pattern: "^\\d{2}:\\d{2}$"
+        end:
+          type: string
+          description: Local end time in HH:MM (24-hour clock).
+          pattern: "^\\d{2}:\\d{2}$"
+      required: [dayOfWeek, start, end]
+
+    WorkingSchedule:
+      type: object
+      description: Weekly working-hours schedule.
+      properties:
+        timeZone:
+          type: string
+          description: IANA timezone identifier for the local working-hours times.
+        weekly:
+          type: array
+          items: { $ref: "#/components/schemas/WorkingScheduleWeeklyEntry" }
+      required: [timeZone, weekly]
+
     BusyBlock:
       type: object
-      description: A normalized America/New_York (Eastern) busy interval derived from the upstream iCal free/busy data.
+      description: A normalized busy interval derived from the upstream iCal free/busy data.
       properties:
         start:
           type: string
           format: date-time
-          description: ISO-8601 start time in America/New_York after clipping and merging.
+          description: ISO-8601 start time in the configured timezone after clipping and merging.
         end:
           type: string
           format: date-time
-          description: ISO-8601 end time in America/New_York (exclusive boundary in practice; always greater than start).
+          description: ISO-8601 end time in the configured timezone (exclusive boundary in practice; always greater than start).
       required: [start, end]
       example:
         start: "2024-01-16T04:00:00.000-05:00"
         end: "2024-01-16T05:30:00.000-05:00"
     Window:
       type: object
-      description: The time window the Worker produces, starting at 00:00:00 America/New_York today and extending the configured forward window (in weeks) to 23:59:59.999 on the final day.
+      description: The time window the Worker produces, starting at 00:00:00 in the configured timezone today and extending the configured forward window (in weeks) to 23:59:59.999 on the final day.
       properties:
         start:
           type: string
           format: date-time
-          description: Inclusive window start at midnight of the current day in America/New_York.
+          description: Inclusive window start at midnight of the current day in the configured timezone.
         end:
           type: string
           format: date-time
-          description: Inclusive window end at the last millisecond of the final day in America/New_York.
+          description: Inclusive window end at the last millisecond of the final day in the configured timezone.
       required: [start, end]
       example:
         start: "2024-01-15T00:00:00.000-05:00"
         end: "2024-02-11T23:59:59.999-05:00"
     FreeBusyResponse:
       type: object
-      description: Response payload containing the generated window metadata and merged busy intervals in America/New_York.
+      description: Response payload containing the generated window metadata, working schedule, and merged busy intervals.
       properties:
         version:
           type: string
@@ -219,43 +268,62 @@ components:
         generatedAt:
           type: string
           format: date-time
-          description: Timestamp (America/New_York) when the response was generated.
+          description: Timestamp in the configured timezone when the response was generated.
         window:
           $ref: "#/components/schemas/Window"
         timezone:
           type: string
-          enum: ["Etc/UTC"]
-          description: Fixed timezone for all timestamps in this API.
+          description: IANA timezone identifier used for all timestamps in this API (from PREFERRED_TIMEZONE).
+        workingSchedule:
+          $ref: "#/components/schemas/WorkingSchedule"
         busy:
           type: array
           description: Array of merged, non-overlapping busy intervals clipped to the window.
           items: { $ref: "#/components/schemas/BusyBlock" }
         rateLimit:
           $ref: "#/components/schemas/RateLimitState"
-      required: [version, generatedAt, window, timezone, busy]
+      required: [version, generatedAt, window, timezone, workingSchedule, busy]
       example:
         version: "24.0115.1200"
-        generatedAt: "2024-01-15T12:00:00.000Z"
+        generatedAt: "2024-01-15T07:00:00.000-05:00"
         window:
-          start: "2024-01-15T00:00:00.000Z"
-          end: "2024-02-11T23:59:59.999Z"
-        timezone: "Etc/UTC"
+          start: "2024-01-15T00:00:00.000-05:00"
+          end: "2024-02-11T23:59:59.999-05:00"
+        timezone: "America/New_York"
+        workingSchedule:
+          timeZone: "America/New_York"
+          weekly:
+            - dayOfWeek: 1
+              start: "08:00"
+              end: "18:00"
+            - dayOfWeek: 2
+              start: "08:00"
+              end: "18:00"
+            - dayOfWeek: 3
+              start: "08:00"
+              end: "18:00"
+            - dayOfWeek: 4
+              start: "08:00"
+              end: "18:00"
+            - dayOfWeek: 5
+              start: "08:00"
+              end: "18:00"
         busy:
-          - start: "2024-01-16T09:00:00.000Z"
-            end: "2024-01-16T10:30:00.000Z"
-          - start: "2024-01-17T14:00:00.000Z"
-            end: "2024-01-17T15:00:00.000Z"
+          - start: "2024-01-16T04:00:00.000-05:00"
+            end: "2024-01-16T05:30:00.000-05:00"
+          - start: "2024-01-17T09:00:00.000-05:00"
+            end: "2024-01-17T10:00:00.000-05:00"
         rateLimit:
-          nextAllowedAt: "2024-01-15T12:05:00.000Z"
+          nextAllowedAt: "2024-01-15T07:05:00.000-05:00"
           scopes:
             perIp:
               remaining: 0
-              reset: "2024-01-15T12:05:00.000Z"
+              reset: "2024-01-15T07:05:00.000-05:00"
               limit: 60
               windowMs: 300000
             global:
               remaining: 10
-              reset: "2024-01-15T12:10:00.000Z"
+              reset: "2024-01-15T07:10:00.000-05:00"
               limit: 600
               windowMs: 300000
     RateLimitScopeState:

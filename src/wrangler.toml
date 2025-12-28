@@ -9,6 +9,7 @@ port = 8787
 [vars]
 # Non-secret vars can go here. Secrets are provided via `wrangler secret put`.
 PREFERRED_TIMEZONE = "America/New_York"
+WORKING_SCHEDULE_JSON = "{\"timeZone\":\"America/New_York\",\"weekly\":[{\"dayOfWeek\":1,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":2,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":3,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":4,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":5,\"start\":\"08:00\",\"end\":\"18:00\"}]}"
 MAXIMUM_FORWARD_WINDOW_IN_WEEKS = "4"
 FREEBUSY_ENABLED = "true"
 CORS_ALLOWLIST = "https://freebusy.robertsinfosec.com"
@@ -16,7 +17,6 @@ RATE_LIMIT_WINDOW_MS = "300000"
 RATE_LIMIT_MAX = "60"
 RATE_LIMIT_GLOBAL_WINDOW_MS = "300000"
 RATE_LIMIT_GLOBAL_MAX = "500"
-PREFERRED_TIMEZONE = "America/New_York"
 
 [[durable_objects.bindings]]
 name = "RATE_LIMITER"

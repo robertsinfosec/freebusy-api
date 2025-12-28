@@ -1,6 +1,6 @@
 import { parseFreeBusy } from "./ical";
 import { buildWindow, clipAndMerge, toResponseBlocks } from "./freebusy";
-import { allowedOriginsFromEnv, Env, forwardWindowWeeksFromEnv, isFreeBusyEnabled, rateLimitConfigFromEnv, validateEnv } from "./env";
+import { allowedOriginsFromEnv, Env, forwardWindowWeeksFromEnv, isFreeBusyEnabled, rateLimitConfigFromEnv, validateEnv, WorkingSchedule, workingScheduleFromEnv } from "./env";
 import { preferredTimezoneFromEnv } from "./env";
 import { enforceRateLimit, RateLimitOutcome } from "./rateLimit";
 import { readLimitedText, redactUrl, sanitizeLogMessage } from "./logging";
@@ -19,12 +19,20 @@ const MAX_UPSTREAM_BYTES = 1_500_000; // Cap upstream payload to avoid memory/CP
 let allowedOriginsCache: Set<string> | null = null;
 let rateLimitConfigCache: ReturnType<typeof rateLimitConfigFromEnv> | null = null;
 let forwardWindowWeeksCache: number | null = null;
+let workingScheduleCache: WorkingSchedule | null = null;
 
 function getAllowedOrigins(): Set<string> {
   if (!allowedOriginsCache) {
     throw new Error("allowed origins not initialized");
   }
   return allowedOriginsCache;
+}
+
+function getWorkingSchedule(): WorkingSchedule {
+  if (!workingScheduleCache) {
+    throw new Error("working schedule not initialized");
+  }
+  return workingScheduleCache;
 }
 
 function formatRateLimit(outcome: RateLimitOutcome, timeZone: string) {
@@ -93,6 +101,8 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
     return cached.busy;
   }
 
+  const preferredTimeZone = preferredTimezoneFromEnv(env);
+
   const target = redactUrl(env.FREEBUSY_ICAL_URL);
   console.info("[freebusy] fetching upstream iCal", { target });
 
@@ -122,7 +132,7 @@ async function fetchUpstream(env: Env): Promise<ReturnType<typeof parseFreeBusy>
   };
   console.info("[freebusy] upstream ical diagnostics", { target, ...diagnostics });
 
-  const busy = parseFreeBusy(text, (msg) => console.warn("[freebusy] parse warning", sanitizeLogMessage(msg)));
+  const busy = parseFreeBusy(text, (msg) => console.warn("[freebusy] parse warning", sanitizeLogMessage(msg)), preferredTimeZone);
   console.info("[freebusy] parsed busy blocks", { count: busy.length });
   cached = { fetchedAt: now, busy };
   return busy;
@@ -178,6 +188,7 @@ async function handleFreeBusy(request: Request, env: Env): Promise<Response> {
       end: formatIsoInTimeZone(windowEnd, preferredTimeZone),
     },
     timezone: preferredTimeZone,
+    workingSchedule: getWorkingSchedule(),
     busy: toResponseBlocks(merged, preferredTimeZone),
     rateLimit: rateLimitOutcome ? formatRateLimit(rateLimitOutcome, preferredTimeZone) : undefined,
   };
@@ -210,9 +221,15 @@ export default {
       return jsonResponse(request, { error: "misconfigured" }, 500);
     }
 
-    allowedOriginsCache = allowedOriginsFromEnv(validatedEnv);
-    rateLimitConfigCache = rateLimitConfigFromEnv(validatedEnv);
-    forwardWindowWeeksCache = forwardWindowWeeksFromEnv(validatedEnv);
+    try {
+      allowedOriginsCache = allowedOriginsFromEnv(validatedEnv);
+      rateLimitConfigCache = rateLimitConfigFromEnv(validatedEnv);
+      forwardWindowWeeksCache = forwardWindowWeeksFromEnv(validatedEnv);
+      workingScheduleCache = workingScheduleFromEnv(validatedEnv);
+    } catch (err) {
+      console.error("env parsing failed", err);
+      return jsonResponse(request, { error: "misconfigured" }, 500);
+    }
 
     const { pathname } = new URL(request.url);
     if (request.method === "OPTIONS") {
