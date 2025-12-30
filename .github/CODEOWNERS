@@ -1,0 +1,12 @@
+# GitHub CODEOWNERS for robertsinfosec/freebusy-api
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @robertsinfosec
+
+# Security-sensitive / policy files
+SECURITY.md @robertsinfosec
+.github/workflows/* @robertsinfosec
+.github/ISSUE_TEMPLATE/* @robertsinfosec
+
+# API contract
+/docs/openapi.yaml @robertsinfosec

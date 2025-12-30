@@ -11,7 +11,7 @@ port = 8787
 
 # v2 calendar/time semantics
 CALENDAR_TIMEZONE = "America/New_York"
-WINDOW_WEEKS = "4"
+WINDOW_WEEKS = "2"
 WEEK_START_DAY = "7"
 WORKING_HOURS_JSON = "{\"weekly\":[{\"dayOfWeek\":1,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":2,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":3,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":4,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":5,\"start\":\"08:00\",\"end\":\"18:00\"}]}"
 
@@ -19,7 +19,7 @@ WORKING_HOURS_JSON = "{\"weekly\":[{\"dayOfWeek\":1,\"start\":\"08:00\",\"end\":
 CACHE_TTL_SECONDS = "60"
 UPSTREAM_MAX_BYTES = "1572864"
 
-FREEBUSY_ENABLED = "true"
+FREEBUSY_ENABLED = "false"
 CORS_ALLOWLIST = "https://freebusy.robertsinfosec.com"
 RATE_LIMIT_WINDOW_MS = "300000"
 RATE_LIMIT_MAX = "60"

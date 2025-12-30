@@ -37,7 +37,10 @@
 				"dbaeumer.vscode-eslint",
 				"esbenp.prettier-vscode",
 				"42Crunch.vscode-openapi",
-				"bierner.markdown-mermaid"
+				"bierner.markdown-mermaid",
+				"GitHub.copilot",
+				"GitHub.copilot-chat",
+				"yzhang.markdown-all-in-one"
 			]
 		}
 	},

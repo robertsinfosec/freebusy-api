@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeAll, afterEach } from "vitest";
+import { describe, expect, it, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import SwaggerParser from "@apidevtools/swagger-parser";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
@@ -76,7 +76,15 @@ describe("openapi contract", () => {
     doc = await SwaggerParser.dereference(specUrl.href);
   });
 
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     delete (globalThis as any).fetch;
   });

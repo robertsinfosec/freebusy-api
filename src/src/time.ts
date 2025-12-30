@@ -37,9 +37,9 @@ function getZonedParts(date: Date, timeZone: string): ZonedParts {
     year: lookup.year,
     month: lookup.month,
     day: lookup.day,
-    hour: lookup.hour ?? 0,
-    minute: lookup.minute ?? 0,
-    second: lookup.second ?? 0,
+    hour: lookup.hour,
+    minute: lookup.minute,
+    second: lookup.second,
   };
 }
 

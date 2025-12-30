@@ -16,7 +16,7 @@
 - Date handling: use `Date` objects internally, emit ISO UTC strings externally.
 
 ## Error Handling
-- Fail fast on config errors; return explicit JSON error codes (`misconfigured`, `disabled`, `upstream`, `parse`, `rate_limited`, `forbidden_origin`, `not_found`).
+- Fail fast on config errors; return explicit JSON error codes (`misconfigured`, `disabled`, `upstream_error`, `rate_limited`, `forbidden_origin`, `not_found`).
 - Do not throw raw errors to callers; normalize responses via helpers.
 - Log with context but never secrets or raw IPs.
 

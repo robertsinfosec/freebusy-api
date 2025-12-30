@@ -24,6 +24,23 @@ describe("parseDuration", () => {
   it("parses days", () => {
     expect(parseDuration("P1DT1H")).toBe(25 * 60 * 60 * 1000);
   });
+
+  it("returns NaN for unparseable duration strings", () => {
+    expect(Number.isNaN(parseDuration("not-a-duration"))).toBe(true);
+  });
+
+  it("caps extremely long durations", () => {
+    // Cap is 366 days.
+    expect(parseDuration("P9999D")).toBe(366 * 24 * 60 * 60 * 1000);
+  });
+
+  it("returns NaN for unsupported week-based durations", () => {
+    expect(Number.isNaN(parseDuration("P1W"))).toBe(true);
+  });
+
+  it("parses seconds", () => {
+    expect(parseDuration("PT30S")).toBe(30 * 1000);
+  });
 });
 
 describe("parseFreeBusy", () => {
@@ -121,6 +138,32 @@ describe("parseFreeBusy", () => {
     expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2026-01-02T05:00:00.000Z");
   });
 
+  it("drops all-day VEVENTs when no owner timezone is provided", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART;VALUE=DATE:20260101",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warn);
+    expect(blocks).toHaveLength(0);
+  });
+
+  it("warns and drops date-only conversions when owner timezone is invalid", () => {
+    const warnings: string[] = [];
+    const warnCapture = (m: string) => warnings.push(m);
+
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART;VALUE=DATE:20260101",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warnCapture, "Not/A_TimeZone");
+    expect(blocks).toHaveLength(0);
+    expect(warnings.length).toBeGreaterThan(0);
+  });
+
   it("parses numeric offset timestamps (±HHMM)", () => {
     const ical = [
       "BEGIN:VEVENT",
@@ -150,6 +193,38 @@ describe("parseFreeBusy", () => {
     expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2026-01-05T16:00:00.000Z");
   });
 
+  it("warns and falls back to UTC when floating DATE-TIME timezone conversion fails", () => {
+    const warnings: string[] = [];
+    const warnCapture = (m: string) => warnings.push(m);
+
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART:20260105T100000",
+      "DTEND:20260105T110000",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warnCapture, "Not/A_TimeZone");
+    expect(blocks).toHaveLength(1);
+    // Falls back to treating the floating time as UTC.
+    expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2026-01-05T10:00:00.000Z");
+    expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2026-01-05T11:00:00.000Z");
+    expect(warnings.length).toBeGreaterThan(0);
+  });
+
+  it("uses a 1-hour default when VEVENT has no DTEND or DURATION", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART:20251225T100000Z",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
+    expect(blocks).toHaveLength(1);
+    expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2025-12-25T10:00:00.000Z");
+    expect(new Date(blocks[0].endMsUtc).toISOString()).toBe("2025-12-25T11:00:00.000Z");
+  });
+
   it("produces different UTC instants across DST for same local time", () => {
     const ical = [
       "BEGIN:VEVENT",
@@ -168,5 +243,41 @@ describe("parseFreeBusy", () => {
     expect(new Date(blocks[0].startMsUtc).toISOString()).toBe("2026-03-03T15:00:00.000Z");
     // After DST (EDT -04): 10:00 => 14:00Z
     expect(new Date(blocks[1].startMsUtc).toISOString()).toBe("2026-03-10T14:00:00.000Z");
+  });
+
+  it("ignores invalid numeric offset timestamps", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART:20260101T000000+9999",
+      "DTEND:20260101T010000+9999",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
+    expect(blocks).toHaveLength(0);
+  });
+
+  it("throws when TZID is provided but unsupported", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "DTSTART;TZID=Bad/Zone:20260101T100000",
+      "DTEND;TZID=Bad/Zone:20260101T110000",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    expect(() => parseFreeBusy(ical, warn, OWNER_TZ)).toThrow(/unsupported_tzid/);
+  });
+
+  it("ignores DTSTART/DTEND lines with unparseable date values", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "UID:bad-date",
+      "DTSTART;TZID=America/New_York:NOTADATE",
+      "DTEND:ALSOBAD",
+      "END:VEVENT",
+    ].join("\n");
+
+    const blocks = parseFreeBusy(ical, warn, OWNER_TZ);
+    expect(blocks).toHaveLength(0);
   });
 });

@@ -20,11 +20,27 @@ describe("security helpers", () => {
     expect(redacted).toBe("https://example.com");
   });
 
+  it("redactUrl returns <invalid-url> for malformed input", () => {
+    expect(redactUrl("not a url")).toBe("<invalid-url>");
+  });
+
+  it("redactUrl returns placeholder for invalid URLs", () => {
+    expect(redactUrl("not a url")).toBe("<invalid-url>");
+  });
+
   it("sanitizes and truncates log messages", () => {
     const noisy = "line1\nline2\t" + "x".repeat(500);
     const cleaned = sanitizeLogMessage(noisy, 50);
     expect(cleaned).not.toMatch(/\n|\t|\r|\0/);
     expect(cleaned.length).toBeLessThanOrEqual(50);
+  });
+
+  it("sanitizeLogMessage returns <non-string> for non-strings", () => {
+    expect(sanitizeLogMessage({} as any)).toBe("<non-string>");
+  });
+
+  it("sanitizeLogMessage handles non-strings", () => {
+    expect(sanitizeLogMessage({} as any)).toBe("<non-string>");
   });
 
   it("rejects when declared content-length exceeds limit", async () => {
@@ -41,5 +57,11 @@ describe("security helpers", () => {
     const res = textResponse("hello", { "content-length": "5" });
     const text = await readLimitedText(res, 1000);
     expect(text).toBe("hello");
+  });
+
+  it("returns empty string when response has no body", async () => {
+    const res = new Response(null);
+    const text = await readLimitedText(res, 1000);
+    expect(text).toBe("");
   });
 });

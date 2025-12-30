@@ -109,12 +109,9 @@ export async function enforceRateLimit(env: Env, ip: string, config: RateLimitCo
   }
 
   const overallAllowed = data.allowed ?? scopeOutcomesArray.every((s) => Boolean(s?.allowed));
-  const remainingValues = Object.values(scopesMap).map((s) => s.remaining);
-  const resetValues = Object.values(scopesMap).map((s) => s.reset);
-
-  const aggregatedRemaining = remainingValues.length ? Math.min(...remainingValues) : 0;
-  // If no reset hints were returned, fall back to the primary window to avoid undefined behavior.
-  const aggregatedReset = resetValues.length ? Math.max(...resetValues) : Date.now() + config.perIp.windowMs;
+  const scopeValues = Object.values(scopesMap);
+  const aggregatedRemaining = Math.min(...scopeValues.map((s) => s.remaining));
+  const aggregatedReset = Math.max(...scopeValues.map((s) => s.reset));
 
   return {
     allowed: Boolean(overallAllowed),

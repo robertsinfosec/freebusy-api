@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a defect or regression
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+
+        Please **do not** include secrets (iCal URLs, tokens, private calendar data) in issues.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected to happen.
+      placeholder: "When I call /freebusy, I get ... but expected ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the issue.
+      placeholder: |
+        1. Configure env: ...
+        2. Call endpoint: ...
+        3. Observe: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error output
+      description: Paste relevant logs (redacted) or error messages.
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Low (minor)
+        - Medium (workaround exists)
+        - High (breaks core functionality)
+        - Critical (security / data exposure)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: If known, include the `version` field returned by `/freebusy`.
+      placeholder: "25.1228.1440"
+    validations:
+      required: false

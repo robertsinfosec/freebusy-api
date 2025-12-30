@@ -1,121 +1,120 @@
 # freebusy-api
 
-Cloudflare Worker that proxies a private calendar free/busy iCal URL and returns a sanitized JSON free/busy window starting at today 00:00:00 in a configurable timezone and extending a configurable number of weeks.
+Cloudflare Worker that proxies a **secret** iCalendar (iCal) free/busy feed and returns a **minimal JSON** payload suitable for a public availability UI.
 
 ![coverage](badges/coverage.svg) ![tests](badges/tests.svg)
 
 ## What it does
-- `GET /freebusy` – fetches a secret free/busy feed, parses `VFREEBUSY`/`FREEBUSY` blocks, merges/normalizes to `PREFERRED_TIMEZONE`, clips to `today 00:00:00 (PREFERRED_TIMEZONE) → end of configured forward window (weeks)`, and returns only busy blocks.
-- Also returns `workingSchedule` (weekly working hours) configured via env.
-- `GET /health` – returns `{ "ok": true }` for simple uptime checks.
+- `GET /freebusy`: fetches the upstream iCal feed (`FREEBUSY_ICAL_URL`), parses `VFREEBUSY/FREEBUSY` and `VEVENT`, merges and clips busy intervals to a forward-looking window, and returns only **busy** time ranges.
+- `GET /health`: returns `{ "ok": true }` (CORS enforced).
+
+This service is intentionally security-first:
+- Strict CORS allowlist
+- Durable Object-backed rate limiting (hashed IP keys; no plaintext IP storage)
+- No raw calendar data returned or persisted
+- Strict response headers (`Cache-Control: no-store`, `CSP default-src 'none'`, etc.)
+
+## Time semantics (v2)
+The “owner timezone” is configured via `CALENDAR_TIMEZONE` (IANA).
+
+- **Window boundaries** are anchored to owner-local *dates* (for a stable “date column” UI), and returned as:
+	- `window.startDate` / `window.endDateInclusive` (owner dates), and
+	- `window.startUtc` / `window.endUtcExclusive` (UTC instants)
+- **Busy intervals are always returned as UTC instants** (ISO strings ending in `Z`). Clients can render in any viewer timezone by converting from UTC using IANA timezone rules.
+- **All-day events** are treated as busy for the entire owner-day (local 00:00 → next-day 00:00), returned as UTC instants.
 
 ## Prerequisites
 - Node.js 20+ (matches devcontainer)
 - `npm`
 - Cloudflare account with Workers + Durable Objects enabled
 
-> App lives under `src/`. Run commands from that directory or use `npm --prefix src`.
+> The Worker project lives under `src/`. Run commands from repo root using `npm --prefix src …`.
 
 ## Setup
-1) Install deps (from repo root):
+Install deps:
 ```bash
 npm --prefix src install
 ```
 
-2) Create local secrets file (not committed):
+Create local secrets (not committed):
 ```bash
 cp src/.env.example src/.env
 ```
-Edit `src/.env` with your calendar free/busy URL, forward window, CORS allowlist, rate-limit values, and a random rate-limit salt. See `src/.env.example` for annotated placeholders.
 
-### Configuration (env vars)
-- `FREEBUSY_ICAL_URL` (required): HTTPS free/busy iCal feed to proxy.
-- `RL_SALT` (required): random hex string used to hash IPs for rate limiting.
-- `PREFERRED_TIMEZONE` (required): IANA timezone identifier used for windowing and all returned timestamps (e.g. `America/New_York`).
-- `WORKING_SCHEDULE_JSON` (required): JSON string that describes weekly working hours (returned as `workingSchedule`). `workingSchedule.timeZone` must match `PREFERRED_TIMEZONE`.
-- `MAXIMUM_FORWARD_WINDOW_IN_WEEKS` (required): integer > 0; window starts at today 00:00:00 in `PREFERRED_TIMEZONE` and ends 23:59:59.999 on the final day.
-- `CORS_ALLOWLIST` (required): comma-separated origins allowed for CORS (e.g., `https://example.com,http://localhost:5000`).
-- `RATE_LIMIT_WINDOW_MS` (required): per-IP rate-limit window in milliseconds.
-- `RATE_LIMIT_MAX` (required): max requests per-IP per window.
-- `RATE_LIMIT_GLOBAL_WINDOW_MS` (optional, with `RATE_LIMIT_GLOBAL_MAX`): global window in milliseconds; set both to enable.
-- `RATE_LIMIT_GLOBAL_MAX` (optional, with `RATE_LIMIT_GLOBAL_WINDOW_MS`): global limit per window.
-- `FREEBUSY_ENABLED` (optional): feature flag; set to `false/0/off` to disable `/freebusy`.
-- `RATE_LIMITER` (required binding): Durable Object namespace (configured in `src/wrangler.toml`).
-
-## Local development
-- Start dev server (from repo root):
+Then start the dev server:
 ```bash
 npm --prefix src run dev
 ```
 
-## Testing
+## API
+Canonical spec: `docs/openapi.yaml`.
+
+### Example
 ```bash
-npm --prefix src test
+curl -i http://localhost:8787/freebusy
 ```
 
-Coverage (CLI summary and HTML report in `coverage/`):
-```bash
-npm --prefix src run test:coverage
-```
-- For badges, wire a CI job (e.g., GitHub Actions) to run `npm --prefix src run test:coverage` and publish coverage/test status to a badge service (e.g., shields.io or Codecov); badges aren’t auto-generated locally.
+### Response fields (high level)
+Successful `GET /freebusy` returns JSON like:
+- `version`: build identifier
+- `generatedAtUtc`: when the response was generated (UTC `Z`)
+- `calendar.timeZone`: the configured owner timezone (`CALENDAR_TIMEZONE`)
+- `calendar.weekStartDay`: ISO day-of-week 1..7 (defaults to 1)
+- `window`: `{ startDate, endDateInclusive, startUtc, endUtcExclusive }`
+- `workingHours`: weekly schedule from `WORKING_HOURS_JSON`
+- `busy[]`: `{ startUtc, endUtc, kind }` where `kind` is `time` or `allDay`
+- `rateLimit`: present for `/freebusy` responses (including 429)
 
-Static badges (local, from last coverage run):
-```bash
-npm --prefix src run test:coverage
-npm --prefix src run badge:coverage
-```
-Generated under `badges/`:
-- Coverage: `badges/coverage.svg`
-- Tests (static "passing"): `badges/tests.svg`
+### CORS behavior
+- JSON endpoints (e.g. `/health`, `/freebusy`): disallowed `Origin` → `403` with `{ "error": "forbidden_origin" }`.
+- Preflight (`OPTIONS`): allowed origin → `204` with CORS headers; disallowed origin → `403` with an empty body.
 
-To display in the README, add for example:
+## Configuration
+The authoritative env surface is `src/src/env.ts` and `src/wrangler.toml`.
 
-![coverage](badges/coverage.svg) ![tests](badges/tests.svg)
+Required:
+- `FREEBUSY_ICAL_URL` (secret): HTTPS upstream iCal free/busy feed
+- `RL_SALT` (secret): random hex used to hash IPs for rate limiting
+- `RATE_LIMITER` (binding): Durable Object namespace (see `src/wrangler.toml`)
+- `CALENDAR_TIMEZONE`: owner IANA timezone (e.g. `America/New_York`)
+- `WINDOW_WEEKS`: integer > 0 (forward window size)
+- `WORKING_HOURS_JSON`: JSON like `{ "weekly": [{"dayOfWeek": 1, "start": "08:00", "end": "18:00"}, ...] }`
+- `CORS_ALLOWLIST`: comma-separated origins
+- `RATE_LIMIT_WINDOW_MS`: integer > 0
+- `RATE_LIMIT_MAX`: integer > 0
 
-## API Specification
-- Canonical OpenAPI spec: `docs/openapi.yaml`. Use this for previews (e.g., 42Crunch) and contract tests. Avoid maintaining copies elsewhere.
+Optional:
+- `WEEK_START_DAY`: integer 1..7 (defaults to 1)
+- `CACHE_TTL_SECONDS`: upstream parse cache TTL in seconds (default 60)
+- `UPSTREAM_MAX_BYTES`: upstream payload cap in bytes (default 1_500_000)
+- `FREEBUSY_ENABLED`: set to `false` / `0` / `off` to disable `/freebusy` (returns 503)
+- `RATE_LIMIT_GLOBAL_WINDOW_MS` + `RATE_LIMIT_GLOBAL_MAX`: set both to enable a global cap
+
+## Developer workflows
+From repo root:
+- Typecheck: `npm --prefix src run check`
+- Tests: `npm --prefix src test`
+- Coverage: `npm --prefix src run test:coverage`
+- Dev server: `npm --prefix src run dev` (Wrangler on `http://localhost:8787`)
+- Deploy: `npm --prefix src run deploy`
 
 ## Deploy
-Set secrets in Cloudflare (do not commit them):
+Secrets are set via Wrangler (do not commit them):
 ```bash
 cd src
 wrangler secret put FREEBUSY_ICAL_URL
 wrangler secret put RL_SALT
 ```
 
-Required env/secrets:
-- `FREEBUSY_ICAL_URL` (HTTPS iCal free/busy feed)
-- `RL_SALT` (random salt for hashed IPs)
-- `MAXIMUM_FORWARD_WINDOW_IN_WEEKS` (integer > 0)
-- `CORS_ALLOWLIST` (comma-separated origins)
-- `RATE_LIMIT_WINDOW_MS` (integer > 0)
-- `RATE_LIMIT_MAX` (integer > 0)
-- `RATE_LIMITER` Durable Object binding (in `wrangler.toml`)
-
-Optional:
-- `RATE_LIMIT_GLOBAL_WINDOW_MS`, `RATE_LIMIT_GLOBAL_MAX` (both required together to enable global limit)
-- `FREEBUSY_ENABLED` (toggle feature flag)
-
-Deploy the worker (from repo root):
+Deploy from repo root:
 ```bash
 npm --prefix src run deploy
 ```
 
-Durable Object binding is defined in `src/wrangler.toml` as `RATE_LIMITER` (migration tag `v1`).
+## Docs
+- API contract: `docs/openapi.yaml`
+- Architecture: `docs/ARCHITECTURE.md`
+- Operations: `docs/RUNBOOK.md`
 
-## Example request
-```bash
-curl -i http://localhost:8787/freebusy
-```
-
-## Notes
-- Window starts at 00:00:00 in `PREFERRED_TIMEZONE` today and ends 23:59:59.999 on the final day of the configured forward window (weeks).
-- Date-only values (`VALUE=DATE`) without a `TZID` are interpreted in `PREFERRED_TIMEZONE` so all-day events map to the correct local day.
-- Date-time values without a `Z` or `TZID` are treated as UTC.
-- Responses are always expressed in `PREFERRED_TIMEZONE` (ISO-8601 timestamps include the appropriate offset, e.g. `-05:00` or `-04:00`).
-- Successful `/freebusy` responses include a `version` field (typically `YY.MMDD.HHmm`) so clients can correlate behavior with deployments.
-- Build step generates `src/version.txt` (transient build output; intentionally untracked) and embeds the same value into the Worker at build time.
-- Rate limit metadata is returned with `/freebusy` responses (including 429) so clients can back off (fields: `nextAllowedAt`, per-scope `remaining/reset`).
-- CORS allowlist must be provided via env; requests from disallowed origins receive 403.
-- Logging: upstream URLs are redacted to origin-only; parse warnings are sanitized and truncated to avoid leaking feed contents.
-- Safety limits: upstream iCal payloads larger than 1.5 MB are rejected with a 502 to prevent resource exhaustion.
+## License
+MIT. See `LICENSE`.
