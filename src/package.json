@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "node scripts/generate-version.mjs && cp .env .dev.vars 2>/dev/null || true; wrangler dev --config wrangler.toml --ip 0.0.0.0 --port 8787",
@@ -19,13 +19,13 @@
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
-    "@cloudflare/workers-types": "^4.20251230.0",
+    "@cloudflare/workers-types": "^4.20251231.0",
+    "@eslint/js": "^9.19.0",
     "@vitest/coverage-v8": "^4.0.16",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "@eslint/js": "^9.19.0",
     "eslint": "^9.19.0",
-    "globals": "^15.14.0",
+    "globals": "^16.5.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.21.0",
     "vitest": "^4.0.16",
