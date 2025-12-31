@@ -2,14 +2,18 @@
 
 Cloudflare Worker that proxies a **secret** iCalendar (iCal) free/busy feed and returns a **minimal JSON** payload suitable for a public availability UI.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/ci.yml?branch=main&label=ci)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml)
-[![CodeQL](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/codeql.yml?branch=main&label=codeql)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/codeql.yml)
-[![Tests](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/ci.yml?branch=main&label=tests)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml)
-[![Node](https://img.shields.io/github/package-json/node-version/robertsinfosec/freebusy-api?filename=src/package.json)](https://github.com/robertsinfosec/freebusy-api/blob/main/src/package.json)
-[![Version](https://img.shields.io/github/package-json/v/robertsinfosec/freebusy-api?filename=src/package.json)](https://github.com/robertsinfosec/freebusy-api/blob/main/src/package.json)
-[![Coverage](https://img.shields.io/codecov/c/github/robertsinfosec/freebusy-api?label=coverage)](https://codecov.io/gh/robertsinfosec/freebusy-api)
-[![Dependabot](https://img.shields.io/github/dependabot/alerts/robertsinfosec/freebusy-api?label=dependabot)](https://github.com/robertsinfosec/freebusy-api/security/dependabot)
-[![License: MIT](https://img.shields.io/github/license/robertsinfosec/freebusy-api)](LICENSE)
+[![CI](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/ci.yml?branch=main&label=tests&logo=githubactions&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml)
+[![coverage](https://codecov.io/gh/robertsinfosec/freebusy-api/branch/main/graph/badge.svg)](https://codecov.io/gh/robertsinfosec/freebusy-api)
+[![CodeQL](https://github.com/robertsinfosec/freebusy-api/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/codeql.yml)
+[![code scanning](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/codeql.yml?branch=main&label=code%20scanning&logo=github&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/security/code-scanning)
+[![node](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Frobertsinfosec%2Ffreebusy-api%2Fmain%2Fsrc%2Fpackage.json&query=%24.engines.node&label=node&logo=node.js&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/blob/main/src/package.json)
+[![license](https://img.shields.io/github/license/robertsinfosec/freebusy-api?label=license)](https://github.com/robertsinfosec/freebusy-api/blob/main/LICENSE)
+[![release](https://img.shields.io/github/v/release/robertsinfosec/freebusy-api?display_name=tag&label=release)](https://github.com/robertsinfosec/freebusy-api/releases)
+[![last commit](https://img.shields.io/github/last-commit/robertsinfosec/freebusy-api?label=last%20commit)](https://github.com/robertsinfosec/freebusy-api/commits/main)
+[![issues](https://img.shields.io/github/issues/robertsinfosec/freebusy-api?label=issues)](https://github.com/robertsinfosec/freebusy-api/issues)
+[![PRs](https://img.shields.io/github/issues-pr/robertsinfosec/freebusy-api?label=pull%20requests)](https://github.com/robertsinfosec/freebusy-api/pulls)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/security/dependabot)
 
 ## What it does
 - `GET /freebusy`: fetches the upstream iCal feed (`FREEBUSY_ICAL_URL`), parses `VFREEBUSY/FREEBUSY` and `VEVENT`, merges and clips busy intervals to a forward-looking window, and returns only **busy** time ranges.

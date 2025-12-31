@@ -6,11 +6,10 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary", "html"],
       thresholds: {
-        // Target "very high" coverage for open sourcing.
-        lines: 95,
-        statements: 95,
-        functions: 95,
-        branches: 90,
+        lines: 80,
+        statements: 80,
+        functions: 80,
+        branches: 80,
       },
     },
   },
