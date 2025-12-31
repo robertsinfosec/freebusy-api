@@ -18,7 +18,7 @@ type ZonedParts = {
 function getZonedParts(date: Date, timeZone: string): ZonedParts {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
-    hour12: false,
+    hourCycle: "h23",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
