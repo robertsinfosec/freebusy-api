@@ -13,7 +13,7 @@ port = 8787
 CALENDAR_TIMEZONE = "America/New_York"
 WINDOW_WEEKS = "2"
 WEEK_START_DAY = "7"
-WORKING_HOURS_JSON = "{\"weekly\":[{\"dayOfWeek\":1,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":2,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":3,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":4,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":5,\"start\":\"08:00\",\"end\":\"18:00\"}]}"
+WORKING_HOURS_JSON = "{\"weekly\":[{\"dayOfWeek\":1,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":2,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":3,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":4,\"start\":\"08:00\",\"end\":\"18:00\"},{\"dayOfWeek\":5,\"start\":\"09:30\",\"end\":\"18:00\"}]}"
 
 # Safety limits / caching
 CACHE_TTL_SECONDS = "60"

@@ -117,7 +117,6 @@ export function validateEnv(env: Partial<Env>): Env {
 
   // Basic URL validation without exposing the secret value.
   try {
-    // eslint-disable-next-line no-new
     new URL(env.FREEBUSY_ICAL_URL!);
   } catch {
     invalid.push("FREEBUSY_ICAL_URL");
@@ -125,7 +124,6 @@ export function validateEnv(env: Partial<Env>): Env {
 
   // Validate timezone identifier early so we fail-fast on misconfiguration.
   try {
-    // eslint-disable-next-line no-new
     new Intl.DateTimeFormat("en-US", { timeZone: env.CALENDAR_TIMEZONE! });
   } catch {
     invalid.push("CALENDAR_TIMEZONE");

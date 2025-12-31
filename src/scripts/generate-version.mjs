@@ -6,10 +6,6 @@ function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
-function pad4(n) {
-  return String(n).padStart(4, "0");
-}
-
 function buildVersionUtc(date = new Date()) {
   const yy = pad2(date.getUTCFullYear() % 100);
   const mmdd = pad2(date.getUTCMonth() + 1) + pad2(date.getUTCDate());

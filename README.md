@@ -2,7 +2,14 @@
 
 Cloudflare Worker that proxies a **secret** iCalendar (iCal) free/busy feed and returns a **minimal JSON** payload suitable for a public availability UI.
 
-![coverage](badges/coverage.svg) ![tests](badges/tests.svg)
+[![CI](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/ci.yml?branch=main&label=ci)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/codeql.yml?branch=main&label=codeql)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/codeql.yml)
+[![Tests](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/ci.yml?branch=main&label=tests)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/github/package-json/node-version/robertsinfosec/freebusy-api?filename=src/package.json)](https://github.com/robertsinfosec/freebusy-api/blob/main/src/package.json)
+[![Version](https://img.shields.io/github/package-json/v/robertsinfosec/freebusy-api?filename=src/package.json)](https://github.com/robertsinfosec/freebusy-api/blob/main/src/package.json)
+[![Coverage](https://img.shields.io/codecov/c/github/robertsinfosec/freebusy-api?label=coverage)](https://codecov.io/gh/robertsinfosec/freebusy-api)
+[![Dependabot](https://img.shields.io/github/dependabot/alerts/robertsinfosec/freebusy-api?label=dependabot)](https://github.com/robertsinfosec/freebusy-api/security/dependabot)
+[![License: MIT](https://img.shields.io/github/license/robertsinfosec/freebusy-api)](LICENSE)
 
 ## What it does
 - `GET /freebusy`: fetches the upstream iCal feed (`FREEBUSY_ICAL_URL`), parses `VFREEBUSY/FREEBUSY` and `VEVENT`, merges and clips busy intervals to a forward-looking window, and returns only **busy** time ranges.

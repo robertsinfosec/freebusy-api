@@ -44,7 +44,6 @@ function addDaysToYmd(ymd: Ymd, days: number): Ymd {
 
 function validateIanaTimeZone(tzid: string): void {
   // Best-effort validation using Intl. Throws on invalid TZs.
-  // eslint-disable-next-line no-new
   new Intl.DateTimeFormat("en-US", { timeZone: tzid });
 }
 

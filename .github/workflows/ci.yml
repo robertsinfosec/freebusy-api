@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -34,10 +35,26 @@ jobs:
         working-directory: src
         run: npm run check
 
-      - name: Unit tests
+      - name: Lint
         working-directory: src
-        run: npm test
+        run: npm run lint
 
-      - name: Coverage gates
+      - name: Unit tests + coverage
         working-directory: src
         run: npm run test:coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: src/coverage/lcov.info
+          fail_ci_if_error: true
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            src/coverage/**
+            src/coverage-summary.json
+          if-no-files-found: warn

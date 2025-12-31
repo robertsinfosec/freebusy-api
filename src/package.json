@@ -3,15 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "node scripts/generate-version.mjs && cp .env .dev.vars 2>/dev/null || true; wrangler dev --config wrangler.toml --ip 0.0.0.0 --port 8787",
     "deploy": "node scripts/generate-version.mjs && wrangler deploy --config wrangler.toml",
     "build": "node scripts/generate-version.mjs && tsc --noEmit",
     "check": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage --coverage.reporter=html --coverage.reporter=text --coverage.reporter=json-summary",
-    "badge:coverage": "node scripts/generate-badges.mjs"
+    "test:coverage": "vitest run --coverage --coverage.reporter=html --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
@@ -19,8 +23,11 @@
     "@vitest/coverage-v8": "^4.0.16",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "badge-maker": "^5.0.2",
+    "@eslint/js": "^9.19.0",
+    "eslint": "^9.19.0",
+    "globals": "^15.14.0",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.21.0",
     "vitest": "^4.0.16",
     "wrangler": "^4.54.0",
     "yaml": "^2.8.2"

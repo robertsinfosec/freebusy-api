@@ -46,13 +46,11 @@ describe("getBuildVersion", () => {
     const originalTrim = String.prototype.trim;
     try {
       // Force an exception inside getBuildVersion()'s try block.
-      // eslint-disable-next-line no-extend-native
       String.prototype.trim = () => {
         throw new Error("boom");
       };
       expect(getBuildVersion()).toBe("0.0.0");
     } finally {
-      // eslint-disable-next-line no-extend-native
       String.prototype.trim = originalTrim;
     }
   });
