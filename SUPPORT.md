@@ -7,7 +7,7 @@ Thanks for using Freebusy API.
 Please do **not** open a public issue for suspected vulnerabilities.
 
 - Report security issues via GitHub Security Advisories:
-  https://github.com/robertsinfosec/freebusy-api/security/policy
+  https://github.com/robertsinfosec/freebusy-api/security/advisories/new
 
 ## Bug reports
 
