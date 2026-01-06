@@ -57,5 +57,5 @@
   - use contract validation against `docs/openapi.yaml` (see `src/test/openapi.contract.test.ts`).
 
 ## Versioning
-- Build/dev/deploy scripts generate `src/version.txt` and `src/src/version.generated.ts` (see `src/scripts/generate-version.mjs`).
+- Build/dev/deploy scripts generate `src/src/version.generated.ts` (see `src/scripts/generate-version.mjs`).
 - Don’t hand-edit `src/src/version.generated.ts`; run the npm scripts that regenerate it.

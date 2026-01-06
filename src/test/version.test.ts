@@ -19,11 +19,6 @@ describe("getBuildVersion", () => {
     expect(getBuildVersion()).toBe("1.2.3");
   });
 
-  it("accepts semver-ish versions as a fallback format", async () => {
-    const { getBuildVersion } = await importVersionWithGenerated("1.2.3");
-    expect(getBuildVersion()).toBe("1.2.3");
-  });
-
   it("falls back to 0.0.0 when BUILD_VERSION is missing/invalid", async () => {
     const { getBuildVersion, FALLBACK_VERSION } = await importVersionWithGenerated(" ");
     expect(getBuildVersion()).toBe(FALLBACK_VERSION);
@@ -53,5 +48,22 @@ describe("getBuildVersion", () => {
     } finally {
       String.prototype.trim = originalTrim;
     }
+  });
+
+  it("accepts new optimized format strings (YY.Mdd.Hmm)", async () => {
+    // 26.106.805 => Year 26, Jan 6, 8:05 AM
+    const { getBuildVersion } = await importVersionWithGenerated("26.106.805");
+    expect(getBuildVersion()).toBe("26.106.805");
+  });
+
+  it("accepts midnight times without leading zeros", async () => {
+    const { getBuildVersion } = await importVersionWithGenerated("26.106.5");
+    expect(getBuildVersion()).toBe("26.106.5");
+
+    const { getBuildVersion: getBuildVersion2 } = await importVersionWithGenerated("26.106.10");
+    expect(getBuildVersion2()).toBe("26.106.10");
+
+    const { getBuildVersion: getBuildVersion3 } = await importVersionWithGenerated("26.106.0");
+    expect(getBuildVersion3()).toBe("26.106.0");
   });
 });

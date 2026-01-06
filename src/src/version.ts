@@ -6,8 +6,10 @@ function isValidVersionString(version: string): boolean {
   const v = version.trim();
   if (!v) return false;
 
-  // Primary expected format: YY.MMDD.HHmm
-  if (/^\d{2}\.\d{4}\.\d{4}$/.test(v)) return true;
+  // Primary expected format: YY.Mdd.HHmmInt
+  // - middle: Mdd (month is 1-12, day is 01-31) => 3-4 digits
+  // - patch: integer HHmm without leading zeros (except literal 0)
+  if (/^\d{2}\.[1-9]\d{2,3}\.(?:0|[1-9]\d{0,3})$/.test(v)) return true;
 
   // Secondary: allow conventional semver-ish strings in case we ever switch formats.
   if (/^\d+\.\d+\.\d+/.test(v)) return true;

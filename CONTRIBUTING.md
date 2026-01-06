@@ -32,7 +32,7 @@ When adding features or bug fixes:
 - Keep `docs/openapi.yaml` in sync with runtime behavior; contract tests validate responses.
 
 ## Generated files
-The build/dev/deploy scripts generate `src/version.txt` and `src/src/version.generated.ts`.
+The build/dev/deploy scripts generate `src/src/version.generated.ts`.
 - Don’t hand-edit these files.
 - In most cases, don’t include version bumps in PRs unless the change explicitly requires it.
 

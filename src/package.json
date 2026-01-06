@@ -7,9 +7,12 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "node scripts/generate-version.mjs && cp .env .dev.vars 2>/dev/null || true; wrangler dev --config wrangler.toml --ip 0.0.0.0 --port 8787",
-    "deploy": "node scripts/generate-version.mjs && wrangler deploy --config wrangler.toml",
-    "build": "node scripts/generate-version.mjs && tsc --noEmit",
+    "predev": "node scripts/generate-version.mjs",
+    "dev": "cp .env .dev.vars 2>/dev/null || true; wrangler dev --config wrangler.toml --ip 0.0.0.0 --port 8787",
+    "predeploy": "node scripts/generate-version.mjs",
+    "deploy": "wrangler deploy --config wrangler.toml",
+    "prebuild": "node scripts/generate-version.mjs",
+    "build": "tsc --noEmit",
     "check": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
