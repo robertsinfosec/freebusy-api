@@ -129,3 +129,7 @@ npm --prefix src run deploy
 
 ## License
 MIT. See `LICENSE`.
+
+---
+
+![Alt](https://repobeats.axiom.co/api/embed/1b554046e870e1855a3830d153b6960749d4c288.svg "Repobeats analytics image")
