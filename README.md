@@ -3,15 +3,15 @@
 Cloudflare Worker that proxies a **secret** iCalendar (iCal) free/busy feed and returns a **minimal JSON** payload suitable for a public availability UI.
 
 [![CI](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/ci.yml?branch=main&label=tests&logo=githubactions&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml)
-[![coverage](https://codecov.io/gh/robertsinfosec/freebusy-api/branch/main/graph/badge.svg)](https://codecov.io/gh/robertsinfosec/freebusy-api)
-[![node](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Frobertsinfosec%2Ffreebusy-api%2Fmain%2Fsrc%2Fpackage.json&query=%24.engines.node&label=node&logo=node.js&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/blob/main/src/package.json)
-[![license](https://img.shields.io/github/license/robertsinfosec/freebusy-api?label=license)](https://github.com/robertsinfosec/freebusy-api/blob/main/LICENSE)
-[![release](https://img.shields.io/github/v/release/robertsinfosec/freebusy-api?display_name=tag&label=release)](https://github.com/robertsinfosec/freebusy-api/releases)
-[![last commit](https://img.shields.io/github/last-commit/robertsinfosec/freebusy-api?label=last%20commit)](https://github.com/robertsinfosec/freebusy-api/commits/main)
-[![issues](https://img.shields.io/github/issues/robertsinfosec/freebusy-api?label=issues)](https://github.com/robertsinfosec/freebusy-api/issues)
-[![PRs](https://img.shields.io/github/issues-pr/robertsinfosec/freebusy-api?label=pull%20requests)](https://github.com/robertsinfosec/freebusy-api/pulls)
+[![CodeQL](https://github.com/robertsinfosec/freebusy-api/actions/workflows/codeql.yml/badge.svg)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/codeql.yml)
+[![Coverage](https://codecov.io/gh/robertsinfosec/freebusy-api/branch/main/graph/badge.svg)](https://codecov.io/gh/robertsinfosec/freebusy-api)
 [![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/security/dependabot)
+[![Node.js](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Frobertsinfosec%2Ffreebusy-api%2Fmain%2Fsrc%2Fpackage.json&query=%24.engines.node&label=node&logo=node.js&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/blob/main/src/package.json)
+[![License](https://img.shields.io/github/license/robertsinfosec/freebusy-api?label=license)](https://github.com/robertsinfosec/freebusy-api/blob/main/LICENSE)
+[![Release](https://img.shields.io/github/v/release/robertsinfosec/freebusy-api?display_name=tag&label=release)](https://github.com/robertsinfosec/freebusy-api/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/robertsinfosec/freebusy-api?label=last%20commit)](https://github.com/robertsinfosec/freebusy-api/commits/main)
+[![Issues](https://img.shields.io/github/issues/robertsinfosec/freebusy-api?label=issues)](https://github.com/robertsinfosec/freebusy-api/issues)
+[![Pull Requests](https://img.shields.io/github/issues-pr/robertsinfosec/freebusy-api?label=pull%20requests)](https://github.com/robertsinfosec/freebusy-api/pulls)
 
 <img src="docs/images/freebusy-social-be.png" height="200"/>
 
