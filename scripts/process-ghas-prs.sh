@@ -287,7 +287,8 @@ while IFS='|' read -r pr_num branch title; do
             
             # Merge the branch
             log_info "Merging PR #$pr_num: $branch into $MAIN_BRANCH"
-            if git merge --no-ff "$branch" -m "Merge pull request #$pr_num from $branch
+            # Use -S flag for signed commits (respects commit.gpgsign config)
+            if git merge --no-ff -S "$branch" -m "Merge pull request #$pr_num from $branch
 
 $title
 
@@ -296,7 +297,10 @@ Automatically merged by process-ghas-prs.sh after successful tests."; then
                 
                 # Push to remote (this will auto-close the PR on GitHub)
                 log_info "Pushing to remote..."
-                if git push origin "$MAIN_BRANCH"; then
+                
+                # Use timeout to prevent hanging on credential prompts
+                # In dev containers, use gh CLI to push which handles auth better
+                if timeout 30s git push origin "$MAIN_BRANCH" 2>&1; then
                     log_success "Pushed to remote - PR #$pr_num auto-closed"
                     merged_prs+=("PR #$pr_num: $title")
                     
@@ -307,7 +311,13 @@ Automatically merged by process-ghas-prs.sh after successful tests."; then
                     merged_count=$((merged_count + 1))
                     log_info "Successfully completed PR #$pr_num"
                 else
-                    log_error "Failed to push to remote"
+                    push_exit_code=$?
+                    if [[ $push_exit_code -eq 124 ]]; then
+                        log_error "Push timed out after 30s - likely credential issue"
+                        log_info "Try running: gh auth setup-git"
+                    else
+                        log_error "Failed to push to remote (exit code: $push_exit_code)"
+                    fi
                     failed_prs+=("PR #$pr_num: $title (push failed)")
                     failed_count=$((failed_count + 1))
                     # Don't exit - continue processing other PRs
