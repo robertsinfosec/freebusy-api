@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v26.127.1400] - 2026-01-27
 
 ### Added
 
@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Codecov integration guide ([docs/dev/CODECOV.md](docs/dev/CODECOV.md))
 - Separate security scanning workflow ([.github/workflows/security.yml](.github/workflows/security.yml))
 - Scheduled Dependabot runs synchronized with security scans (Mondays 6:45 AM UTC)
+- Script to automate processing of GitHub Advanced Security PRs
+- Repobeats analytics image to README
 
 ### Changed
 
@@ -24,12 +26,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated CONTRIBUTING.md with developer docs references and change management guidelines
 - Consolidated CI workflows: merged CodeQL into main CI workflow
 - Updated PRD.md with expanded future enhancements roadmap
+- Updated devcontainer name to reflect project context
+- Enhanced PR merging process with signed commits and timeout handling
 
 ### Removed
 
 - RUNBOOK.md (content distributed to README, SETUP.md, CONTRIBUTING.md, PRD.md)
 - Separate CodeQL workflow (now part of ci.yml)
 - Duplicate CodeQL badges from README
+
+### Security
+
+- Updated @vitest/coverage-v8 from 4.0.16 to 4.0.18
+- Updated vitest from 4.0.16 to 4.0.18
+- Updated typescript-eslint from 8.52.0 to 8.54.0
+- Updated globals from 17.0.0 to 17.2.0
+- Updated @cloudflare/workers-types to latest version
+- Updated wrangler from 4.54.0 to 4.61.0
 
 ## [v26.106.1245] - 2026-01-06
 
@@ -94,7 +107,8 @@ Initial production release.
 - HTTPS-only upstream feeds
 - No raw calendar data exposure
 
-[Unreleased]: https://github.com/robertsinfosec/freebusy-api/compare/v26.106.1245...HEAD
+[Unreleased]: https://github.com/robertsinfosec/freebusy-api/compare/v26.127.1400...HEAD
+[v26.127.1400]: https://github.com/robertsinfosec/freebusy-api/compare/v26.106.1245...v26.127.1400
 [v26.106.1245]: https://github.com/robertsinfosec/freebusy-api/compare/v26.106.1010...v26.106.1245
 [v26.106.1010]: https://github.com/robertsinfosec/freebusy-api/compare/v25.1231.0134...v26.106.1010
 [v25.1231.0134]: https://github.com/robertsinfosec/freebusy-api/compare/dbbd807...v25.1231.0134
