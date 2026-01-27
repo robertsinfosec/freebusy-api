@@ -13,6 +13,8 @@ Cloudflare Worker that proxies a **secret** iCalendar (iCal) free/busy feed and 
 [![PRs](https://img.shields.io/github/issues-pr/robertsinfosec/freebusy-api?label=pull%20requests)](https://github.com/robertsinfosec/freebusy-api/pulls)
 [![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/security/dependabot)
 
+<img src="docs/images/freebusy-social-be.png" height="200"/>
+
 ## What it does
 - `GET /freebusy`: fetches the upstream iCal feed (`FREEBUSY_ICAL_URL`), parses `VFREEBUSY/FREEBUSY` and `VEVENT`, merges and clips busy intervals to a forward-looking window, and returns only **busy** time ranges.
 - `GET /health`: returns `{ "ok": true }` (CORS enforced).
