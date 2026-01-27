@@ -1,5 +1,9 @@
 # Freebusy API – Product Requirements Document (PRD)
 
+Navigation: [Home](../README.md) | [Architecture](dev/ARCHITECTURE.md) | [API Spec](openapi.yaml) | [Setup](dev/SETUP.md)
+
+Complete product requirements and specification for the Freebusy API.
+
 ## 1. Purpose
 Provide a production-ready, security-first Free/Busy aggregation API backed by a Cloudflare Worker and Durable Object rate limiter. The service fetches a private iCal feed, normalizes busy intervals to UTC, and exposes a minimal JSON API for a public SPA while minimizing data leakage and operational risk.
 
@@ -119,18 +123,64 @@ Provide a production-ready, security-first Free/Busy aggregation API backed by a
 - Misconfiguration: validated at startup; returns 500; add deployment checks.
 - Large/complex iCal: parsing performance risk; mitigate with size checks and parsing warnings.
 
-## 17. Roadmap (future enhancements)
-- Add Turnstile verification and/or signed nonce requirement for `/freebusy`.
-- Add per-origin API keys with KV-backed revocation.
-- Add metrics export (Logpush/Workers Analytics) and alerting on error rates/latency/rate-limit hits.
-- Add configurable allowed-origins via env binding.
-- Add staged rollout (canary) and synthetic monitoring.
+## 17. Roadmap (Future Enhancements)
+
+### Short-Term Improvements
+
+- Add per-origin API keys with KV-backed revocation
+- Add staged rollout (canary) and synthetic monitoring
+- Add metrics export (Logpush/Workers Analytics)
+- Add alerting on error rates, latency, and rate-limit hits
+
+### Long-Term Hardening
+
+These are optional security enhancements for consideration:
+
+**Enhanced Request Validation:**
+
+- **Turnstile verification:** Add Cloudflare Turnstile token requirement for `/freebusy` with server-side verification
+  - Requires: Client-side Turnstile widget integration
+  - Benefit: CAPTCHA-like protection against automated abuse
+  - Implementation: Validate turnstile token before processing request
+
+**Signed Nonce System:**
+
+- **Nonce issuance:** Issue short-lived signed nonces via Pages Function or Durable Object
+- **Nonce validation:** Require valid nonce on all `/freebusy` requests
+  - Requires: Nonce endpoint (`GET /nonce`) returning signed token
+  - Benefit: Rate limiting per token + IP (more granular control)
+  - Implementation: JWT-style nonce with expiration, validated before processing
+
+**Upstream Protection:**
+
+- **Payload size guardrails:** Additional safety beyond current `UPSTREAM_MAX_BYTES`
+  - Example: Streaming parser with hard limits
+  - Example: Reject feeds exceeding complexity thresholds
+  - Benefit: Protect against malicious or bloated upstream feeds
+
+**Advanced Monitoring:**
+
+- **Real-time alerting:** Automated alerts for:
+  - Upstream failure rate exceeding threshold
+  - Surge in 429 (rate limited) or 403 (forbidden) responses
+  - Latency p95 above target thresholds
+- **Metrics dashboards:** Visualize request patterns, error rates, cache hit ratios
+- **Trace events:** Enable Workers Trace Events for detailed request debugging
+
+### Integration Projects
+
+**freebusy-site Integration:**
+
+- Tight coupling with public SPA for availability display
+- Client-side error handling and retry logic
+- Loading states and user feedback
+- See: [freebusy-site repository](https://github.com/robertsinfosec/freebusy-site) (when available)
 
 ## 18. Definition of Done
-- All functional and non-functional requirements implemented.
-- OpenAPI spec (`openapi.yaml`) up to date with deployed behavior.
-- Tests passing (unit + integration); linters/tsc clean.
-- Secrets configured in target environment; DO migration applied.
-- Security headers and CORS verified in responses.
-- Performance smoke tests meet p95 targets.
-- Runbook/operations notes updated; logging verified for redaction and signal.
+- All functional and non-functional requirements implemented
+- OpenAPI spec ([openapi.yaml](openapi.yaml)) up to date with deployed behavior
+- Tests passing (unit + integration); linters/tsc clean
+- Secrets configured in target environment; DO migration applied
+- Security headers and CORS verified in responses
+- Performance smoke tests meet p95 targets
+- Documentation updated ([SETUP.md](dev/SETUP.md), [ARCHITECTURE.md](dev/ARCHITECTURE.md), [PRD.md](PRD.md)); logging verified for redaction and signal

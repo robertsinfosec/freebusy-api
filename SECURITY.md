@@ -1,5 +1,9 @@
 # Security Policy
 
+Navigation: [Home](README.md) | [Contributing](CONTRIBUTING.md) | [Support](SUPPORT.md)
+
+Security policy and vulnerability reporting procedures.
+
 ## Reporting a vulnerability
 Please do not open public issues for security vulnerabilities.
 

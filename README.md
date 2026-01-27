@@ -5,8 +5,6 @@ Cloudflare Worker that proxies a **secret** iCalendar (iCal) free/busy feed and 
 [![CI](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml)
 [![tests](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/ci.yml?branch=main&label=tests&logo=githubactions&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/ci.yml)
 [![coverage](https://codecov.io/gh/robertsinfosec/freebusy-api/branch/main/graph/badge.svg)](https://codecov.io/gh/robertsinfosec/freebusy-api)
-[![CodeQL](https://github.com/robertsinfosec/freebusy-api/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/robertsinfosec/freebusy-api/actions/workflows/codeql.yml)
-[![code scanning](https://img.shields.io/github/actions/workflow/status/robertsinfosec/freebusy-api/codeql.yml?branch=main&label=code%20scanning&logo=github&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/security/code-scanning)
 [![node](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Frobertsinfosec%2Ffreebusy-api%2Fmain%2Fsrc%2Fpackage.json&query=%24.engines.node&label=node&logo=node.js&logoColor=white)](https://github.com/robertsinfosec/freebusy-api/blob/main/src/package.json)
 [![license](https://img.shields.io/github/license/robertsinfosec/freebusy-api?label=license)](https://github.com/robertsinfosec/freebusy-api/blob/main/LICENSE)
 [![release](https://img.shields.io/github/v/release/robertsinfosec/freebusy-api?display_name=tag&label=release)](https://github.com/robertsinfosec/freebusy-api/releases)
@@ -122,10 +120,161 @@ Deploy from repo root:
 npm --prefix src run deploy
 ```
 
-## Docs
-- API contract: `docs/openapi.yaml`
-- Architecture: `docs/ARCHITECTURE.md`
-- Operations: `docs/RUNBOOK.md`
+## Documentation
+
+### User Documentation
+
+- [API Specification](docs/openapi.yaml) - OpenAPI 3.0 contract
+- [Product Requirements](docs/PRD.md) - Features and requirements
+- [Security](SECURITY.md) - Security policy and reporting
+- [Support](SUPPORT.md) - Getting help
+
+### Developer Documentation
+
+- [Setup Guide](docs/dev/SETUP.md) - Environment setup and deployment
+- [Architecture](docs/dev/ARCHITECTURE.md) - Technical design and patterns
+- [Testing Guide](docs/dev/TESTING.md) - Writing and running tests
+- [Codecov Integration](docs/dev/CODECOV.md) - Coverage tracking
+- [Contributing](CONTRIBUTING.md) - Development guidelines
+- [Style Guide](STYLE_GUIDE.md) - Code and documentation standards
+
+## Deployment
+
+### Setting Secrets
+
+Secrets are managed via Wrangler. **Never commit secrets to version control.**
+
+```bash
+cd src
+
+# Required secrets
+wrangler secret put FREEBUSY_ICAL_URL
+wrangler secret put RL_SALT
+
+# Generate RL_SALT with: openssl rand -hex 32
+```
+
+All other configuration values are set in [wrangler.toml](src/wrangler.toml) as environment variables.
+
+### Deploy to Production
+
+```bash
+# From repo root
+npm --prefix src run deploy
+```
+
+**Pre-deployment checklist:**
+
+- [ ] All tests pass: `npm --prefix src test`
+- [ ] Type check passes: `npm --prefix src run check`
+- [ ] Secrets configured in Cloudflare
+- [ ] [wrangler.toml](src/wrangler.toml) updated with correct values
+- [ ] [openapi.yaml](docs/openapi.yaml) reflects any API changes
+
+### Rollback
+
+To rollback after a problematic deployment:
+
+1. **Quick disable:** Set `FREEBUSY_ENABLED=false` (returns 503 for `/freebusy`)
+2. **Full rollback:** Redeploy from previous known-good commit
+
+```bash
+# Emergency disable
+cd src
+wrangler secret put FREEBUSY_ENABLED
+# Enter: false
+
+# Then redeploy to apply
+npm run deploy
+```
+
+## Rate Limiting
+
+### Configuration
+
+Rate limiting is enforced per-IP (hashed) and optionally globally:
+
+**Per-IP limits (required):**
+
+- `RATE_LIMIT_MAX` - Maximum requests per window (e.g., `100`)
+- `RATE_LIMIT_WINDOW_MS` - Window duration in milliseconds (e.g., `60000` = 1 minute)
+
+**Global limits (optional, must set both):**
+
+- `RATE_LIMIT_GLOBAL_MAX` - Maximum total requests per window
+- `RATE_LIMIT_GLOBAL_WINDOW_MS` - Global window duration
+
+Leave global limits unset to disable global cap.
+
+### Adjusting Limits
+
+1. Update values in [wrangler.toml](src/wrangler.toml)
+2. Redeploy: `npm --prefix src run deploy`
+3. Verify: Trigger rate limit, expect `429` response with `{"error":"rate_limited"}`
+
+### How Rate Limiting Works
+
+- IP addresses are **hashed** using `RL_SALT` (never stored in plaintext)
+- Enforced via Cloudflare Durable Objects (distributed state)
+- Clients receive `rateLimit` object in responses showing remaining quota
+
+## CORS Configuration
+
+### Setting Allowed Origins
+
+`CORS_ALLOWLIST` is a **comma-separated** list of allowed origins:
+
+```bash
+cd src
+wrangler secret put CORS_ALLOWLIST
+# Example: https://example.com,https://app.example.com
+```
+
+**CORS behavior:**
+
+- **Allowed origins:** Receive proper CORS headers, `OPTIONS` returns `204`, requests succeed
+- **Disallowed origins:**
+  - JSON endpoints (`/health`, `/freebusy`) return `403` with `{"error":"forbidden_origin"}`
+  - `OPTIONS` preflight returns `403` with empty body
+
+### Best Practices
+
+- Keep allowlist **minimal** (only trusted origins)
+- Prefer **HTTPS** origins
+- After updating, test both allowed and disallowed origins
+
+## Health Checks
+
+### Quick Validation
+
+```bash
+# Health check (from allowed origin)
+curl -H "Origin: https://yourdomain.com" https://freebusy.yourdomain.workers.dev/health
+# Expected: {"ok":true}
+
+# Freebusy endpoint
+curl -H "Origin: https://yourdomain.com" https://freebusy.yourdomain.workers.dev/freebusy
+# Expected: 200 with busy array, UTC timestamps ending in Z
+
+# Test CORS rejection
+curl -H "Origin: https://evil.com" https://freebusy.yourdomain.workers.dev/health
+# Expected: 403 {"error":"forbidden_origin"}
+```
+
+### Monitoring
+
+Monitor your Worker via Cloudflare Dashboard:
+
+- **Metrics:** Request rate, error rate, latency percentiles
+- **Logs:** Real-time logs (errors, warnings, diagnostics)
+- **Alerts:** (Optional) Set up Cloudflare alerts for error rate thresholds
+
+Key metrics to watch:
+
+- Elevated `5xx` errors (upstream issues)
+- Surge in `429` responses (rate limiting triggered)
+- Surge in `403` responses (CORS violations or blocked origins)
+- Latency p95 above expected thresholds
 
 ## License
 MIT. See `LICENSE`.

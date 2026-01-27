@@ -1,5 +1,9 @@
 # Support
 
+Navigation: [Home](README.md) | [Contributing](CONTRIBUTING.md) | [Security](SECURITY.md)
+
+Getting help and reporting issues.
+
 Thanks for using Freebusy API.
 
 ## Security issues
@@ -19,14 +23,16 @@ When filing a bug, please include:
 - The response status code and JSON body.
 - The `version` field returned by `/freebusy` (if applicable).
 
-## Questions / discussions
+## Questions and Discussions
 
-If you have a question about how to deploy or configure the Worker, start with:
-- README
-- docs/RUNBOOK.md
-- docs/ARCHITECTURE.md
+If you have questions about deployment or configuration:
 
-If something is unclear, open a documentation issue.
+- Start with the [README](README.md)
+- Review the [Setup Guide](docs/dev/SETUP.md) for deployment procedures
+- Check [Architecture docs](docs/dev/ARCHITECTURE.md) for technical design
+- See [Testing Guide](docs/dev/TESTING.md) for testing procedures
+
+If something is unclear, [open a documentation issue](https://github.com/robertsinfosec/freebusy-api/issues/new).
 
 ## Compatibility policy
 

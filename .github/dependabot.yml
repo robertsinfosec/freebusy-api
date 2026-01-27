@@ -5,6 +5,8 @@ updates:
     directory: "/src"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:45"
     open-pull-requests-limit: 10
 
   # Keep GitHub Actions pinned versions up to date
@@ -12,3 +14,5 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:45"
