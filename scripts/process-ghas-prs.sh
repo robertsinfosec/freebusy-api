@@ -14,12 +14,16 @@
 #   --author AUTHOR        Only process PRs from AUTHOR (can be used multiple times)
 #   --all                  Process all automated authors (default)
 #   --force                Skip confirmation prompts and auto-merge all passing PRs
+#   --push                 Auto-push batch of commits without final confirmation
+#   --no-push              Never push; queue commits locally for manual push
 #
 # Examples:
 #   ./scripts/process-ghas-prs.sh --dry-run
 #   ./scripts/process-ghas-prs.sh --author dependabot
 #   ./scripts/process-ghas-prs.sh --author dependabot --author copilot-autofix
 #   ./scripts/process-ghas-prs.sh --force  # Auto-merge without prompts
+#   ./scripts/process-ghas-prs.sh --push   # Auto-push batch without final confirmation
+#   ./scripts/process-ghas-prs.sh --no-push  # Queue commits, don't push
 #
 # First-time setup:
 #   gh auth login
@@ -44,6 +48,7 @@ TEST_DIR="src"
 TEST_COMMAND="npm test"
 DRY_RUN=false
 FORCE=false
+PUSH_MODE="prompt"  # Options: "auto", "prompt", "never"
 
 # Automated PR authors to process
 # These are the GitHub app/bot usernames
@@ -81,6 +86,14 @@ while [[ $# -gt 0 ]]; do
             FORCE=true
             shift
             ;;
+        --push)
+            PUSH_MODE="auto"
+            shift
+            ;;
+        --no-push)
+            PUSH_MODE="never"
+            shift
+            ;;
         -h|--help)
             grep '^#' "$0" | grep -v '#!/bin/bash' | sed 's/^# //' | sed 's/^#//'
             exit 0
@@ -104,6 +117,14 @@ fi
 
 if [[ "$FORCE" == true ]]; then
     echo -e "${YELLOW}FORCE MODE - All passing PRs will be merged without confirmation${NC}\n"
+fi
+
+if [[ "$PUSH_MODE" == "auto" ]]; then
+    echo -e "${YELLOW}AUTO-PUSH MODE - Commits will be pushed automatically after merging${NC}\n"
+elif [[ "$PUSH_MODE" == "never" ]]; then
+    echo -e "${YELLOW}NO-PUSH MODE - Commits will be queued locally for manual push${NC}\n"
+else
+    echo -e "${BLUE}BATCH MODE - You'll be prompted to push all commits after merging${NC}\n"
 fi
 
 # Helper functions
@@ -293,35 +314,15 @@ while IFS='|' read -r pr_num branch title; do
 $title
 
 Automatically merged by process-ghas-prs.sh after successful tests."; then
-                log_success "Merged PR #$pr_num"
+                log_success "Merged PR #$pr_num locally"
+                merged_prs+=("PR #$pr_num: $title")
+                merged_count=$((merged_count + 1))
                 
-                # Push to remote (this will auto-close the PR on GitHub)
-                log_info "Pushing to remote..."
+                # Clean up local branch
+                log_info "Cleaning up local branch: $branch"
+                git branch -d "$branch" >/dev/null 2>&1 || true
                 
-                # Use timeout to prevent hanging on credential prompts
-                # In dev containers, use gh CLI to push which handles auth better
-                if timeout 30s git push origin "$MAIN_BRANCH" 2>&1; then
-                    log_success "Pushed to remote - PR #$pr_num auto-closed"
-                    merged_prs+=("PR #$pr_num: $title")
-                    
-                    # Clean up local branch
-                    log_info "Cleaning up local branch: $branch"
-                    git branch -d "$branch" >/dev/null 2>&1 || true
-                    
-                    merged_count=$((merged_count + 1))
-                    log_info "Successfully completed PR #$pr_num"
-                else
-                    push_exit_code=$?
-                    if [[ $push_exit_code -eq 124 ]]; then
-                        log_error "Push timed out after 30s - likely credential issue"
-                        log_info "Try running: gh auth setup-git"
-                    else
-                        log_error "Failed to push to remote (exit code: $push_exit_code)"
-                    fi
-                    failed_prs+=("PR #$pr_num: $title (push failed)")
-                    failed_count=$((failed_count + 1))
-                    # Don't exit - continue processing other PRs
-                fi
+                log_info "Successfully merged PR #$pr_num (queued for push)"
             else
                 log_error "Merge failed for PR #$pr_num"
                 failed_prs+=("PR #$pr_num: $title (merge conflict)")
@@ -396,6 +397,79 @@ fi
 if [[ "$DRY_RUN" == true ]]; then
     echo ""
     log_warning "This was a DRY RUN. Run without --dry-run to actually merge."
+fi
+
+echo ""
+
+# Handle batch push based on mode
+if [[ "$DRY_RUN" == false && $merged_count -gt 0 ]]; then
+    if [[ "$PUSH_MODE" == "never" ]]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        log_info "Commits queued locally (not pushed)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        log_info "To push all commits:"
+        echo "  git push origin $MAIN_BRANCH"
+        echo ""
+        log_info "To rollback all merges:"
+        echo "  git reset --hard origin/$MAIN_BRANCH"
+        echo ""
+    elif [[ "$PUSH_MODE" == "prompt" ]]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        log_info "Ready to push $merged_count merged PR(s)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo -e "${GREEN}Merged PRs ready to push:${NC}"
+        for pr in "${merged_prs[@]}"; do
+            echo "  - $pr"
+        done
+        echo ""
+        log_info "To rollback before pushing: git reset --hard origin/$MAIN_BRANCH"
+        echo ""
+        read -p "Push all commits to remote now? (y/N): " -r </dev/tty
+        echo ""
+        
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Pushing $merged_count commit(s) to remote..."
+            if timeout 30s git push origin "$MAIN_BRANCH" 2>&1; then
+                log_success "Successfully pushed all commits - PRs will auto-close on GitHub"
+            else
+                push_exit_code=$?
+                if [[ $push_exit_code -eq 124 ]]; then
+                    log_error "Push timed out after 30s - likely credential issue"
+                    log_info "Try running: gh auth setup-git"
+                else
+                    log_error "Failed to push to remote (exit code: $push_exit_code)"
+                fi
+                echo ""
+                log_warning "Commits are still queued locally. You can:"
+                echo "  - Fix credentials and retry: git push origin $MAIN_BRANCH"
+                echo "  - Rollback all merges: git reset --hard origin/$MAIN_BRANCH"
+            fi
+        else
+            log_info "Push cancelled. Commits queued locally."
+            echo ""
+            log_info "To push later: git push origin $MAIN_BRANCH"
+            log_info "To rollback: git reset --hard origin/$MAIN_BRANCH"
+        fi
+    else  # auto mode
+        log_info "Auto-pushing $merged_count commit(s) to remote..."
+        if timeout 30s git push origin "$MAIN_BRANCH" 2>&1; then
+            log_success "Successfully pushed all commits - PRs will auto-close on GitHub"
+        else
+            push_exit_code=$?
+            if [[ $push_exit_code -eq 124 ]]; then
+                log_error "Push timed out after 30s - likely credential issue"
+                log_info "Try running: gh auth setup-git"
+            else
+                log_error "Failed to push to remote (exit code: $push_exit_code)"
+            fi
+            echo ""
+            log_warning "Commits are still queued locally. You can:"
+            echo "  - Fix credentials and retry: git push origin $MAIN_BRANCH"
+            echo "  - Rollback all merges: git reset --hard origin/$MAIN_BRANCH"
+        fi
+    fi
 fi
 
 # Return to main branch
