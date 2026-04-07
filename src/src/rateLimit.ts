@@ -72,7 +72,7 @@ export async function enforceRateLimit(env: Env, ip: string, config: RateLimitCo
   try {
     data = (await res.json()) as { allowed?: boolean; scopes?: RateLimitScopeOutcome[] };
   } catch (err) {
-    throw new Error(`rate_limit_error: invalid response: ${String(err)}`);
+    throw new Error(`rate_limit_error: invalid response: ${String(err)}`, { cause: err });
   }
 
   const scopeOutcomesArray: RateLimitScopeOutcome[] = Array.isArray(data.scopes) ? data.scopes : [];

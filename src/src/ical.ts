@@ -122,7 +122,7 @@ function parseICalDateTimeToUtcMillis(
     } catch (err) {
       // If upstream provided TZID and it's not supported, fail hard (avoid silent wrong times).
       if (tzid) {
-        throw new Error(`unsupported_tzid:${tzid}`);
+        throw new Error(`unsupported_tzid:${tzid}`, { cause: err });
       }
       warn(`Failed TZ conversion for ${effectiveTzid}: ${String(err)}`);
     }

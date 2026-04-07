@@ -99,7 +99,7 @@ export function createWorker(deps: WorkerDeps = {}) {
   async function handleFreeBusy(request: Request, env: Env, config: WorkerConfig): Promise<Response> {
     const ip = request.headers.get("CF-Connecting-IP") ?? "0.0.0.0";
 
-    let rateLimitOutcome: RateLimitOutcome | null = null;
+    let rateLimitOutcome: RateLimitOutcome;
     try {
       rateLimitOutcome = await enforceRateLimit(env, ip, config.rateLimitConfig);
       if (!rateLimitOutcome.allowed) {
