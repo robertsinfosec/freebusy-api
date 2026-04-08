@@ -1,0 +1,21 @@
+name: Update Copilot Customizations
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to install (e.g. v26.408.559 or latest)"
+        default: "latest"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: robertsinfosec/update-copilot-customizations-action@v1
+        with:
+          version: ${{ inputs.version || 'latest' }}
+      # PR is created automatically
