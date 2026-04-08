@@ -61,4 +61,4 @@ Invoked automatically by agents or manually via description matching:
 
 **Required for your stack**: Run `/detect-stack` once after installation — it scans your repo and generates `instructions/stack-standards.instructions.md` with technology-specific best practices.
 
-**Optional**: Create `docs/BRAND.md` to enable brand compliance auditing.
+**Brand guide**: Use `docs/BRAND.md` as the source of truth for terminology, tone, and visual standards.
