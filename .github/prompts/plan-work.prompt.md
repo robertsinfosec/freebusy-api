@@ -11,7 +11,7 @@ Take the braindump provided in `{{input}}` and convert it into well-structured G
 
 1. **Gather context:**
    - Read `docs/PRD.md` if it exists — understand product goals
-   - Read `docs/ARCHITECTURE.md` if it exists — understand system structure
+   - Read `docs/dev/ARCHITECTURE.md` if it exists — understand system structure
    - Run `gh issue list --state open --limit 50` — avoid creating duplicates
 
 2. **Decompose the braindump:**

@@ -21,7 +21,7 @@ You MUST check for these project documents before making decisions in their doma
 | Document | Read BEFORE | If missing, WARN the user |
 |----------|-------------|---------------------------|
 | `docs/PRD.md` | Adding features, making UX decisions, scoping work | "No PRD found — recommend creating `docs/PRD.md` to document product requirements before making feature decisions." |
-| `docs/ARCHITECTURE.md` | Creating modules, changing structure, introducing patterns | "No architecture doc found — recommend creating `docs/ARCHITECTURE.md` to document system boundaries and design decisions." |
+| `docs/dev/ARCHITECTURE.md` | Creating modules, changing structure, introducing patterns | "No architecture doc found — recommend creating `docs/dev/ARCHITECTURE.md` to document system boundaries and design decisions." |
 | `docs/BRAND.md` | Writing any user-facing content, UI text, docs | "No brand guide found — recommend creating `docs/BRAND.md` to ensure consistent voice, tone, and visual identity." |
 | `docs/ADR/` | Reversing or contradicting past design decisions | "No ADRs found — recommend `docs/ADR/` to record architecture decisions and prevent future reversals." |
 | `CONTRIBUTING.md` | Suggesting PR, commit, or workflow conventions | — |

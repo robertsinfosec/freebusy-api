@@ -12,7 +12,7 @@ If `{{input}}` is a GitHub Issue number, run `gh issue view <number>` to read th
 
 1. **Understand the task:**
    - Read the issue/task description completely
-   - Read `docs/ARCHITECTURE.md` if it exists
+   - Read `docs/dev/ARCHITECTURE.md` if it exists
    - Identify all files that will be affected
    - Read ALL instruction files that apply to those files (check `applyTo` patterns)
 

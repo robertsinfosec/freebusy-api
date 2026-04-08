@@ -1,6 +1,6 @@
 # GitHub Copilot Customizations
 
-> **Version: {{VERSION}}** · [robertsinfosec/gh-copilot-customizations](https://github.com/robertsinfosec/gh-copilot-customizations)
+> **Version: v26.408.1631** · [robertsinfosec/gh-copilot-customizations](https://github.com/robertsinfosec/gh-copilot-customizations)
 
 ## Quick Start
 

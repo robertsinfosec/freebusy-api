@@ -45,7 +45,7 @@ For each public endpoint/function:
 
 ### Step 4: Audit Architecture Documentation
 
-If `docs/ARCHITECTURE.md` exists:
+If `docs/dev/ARCHITECTURE.md` exists:
 - Does it reflect the current module structure?
 - Do dependency descriptions match actual imports?
 - Are data flow descriptions accurate?

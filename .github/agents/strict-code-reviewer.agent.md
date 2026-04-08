@@ -39,7 +39,7 @@ You review EVERYTHING. Unlike the specialized agents (security-reviewer, complia
 - 75% branch coverage minimum
 
 ### 5. Architecture
-- Changes align with `docs/ARCHITECTURE.md`
+- Changes align with `docs/dev/ARCHITECTURE.md`
 - Dependency direction is correct
 - No circular dependencies introduced
 - Module boundaries respected

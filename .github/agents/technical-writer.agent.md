@@ -33,7 +33,7 @@ First, scan for all documentation files:
 - Authentication requirements stated
 
 ### Architecture Documentation
-- `docs/ARCHITECTURE.md` reflects current module structure
+- `docs/dev/ARCHITECTURE.md` reflects current module structure
 - Dependency diagrams match actual imports
 - Data flow descriptions are accurate
 

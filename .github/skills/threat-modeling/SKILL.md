@@ -12,12 +12,12 @@ generation-source: "generation/skills/threat-modeling.md"
 - Reviewing architecture of an existing system
 - Assessing security posture before a release
 - After a security incident to identify missed threats
-- When `docs/ARCHITECTURE.md` is updated with new data flows
+- When `docs/dev/ARCHITECTURE.md` is updated with new data flows
 
 ## Prerequisites
 
 - Read `.github/instructions/security-standards.instructions.md` for security governance
-- Read `docs/ARCHITECTURE.md` if it exists — understand system structure and data flows
+- Read `docs/dev/ARCHITECTURE.md` if it exists — understand system structure and data flows
 
 ## Procedure
 
@@ -87,5 +87,5 @@ Store as `docs/THREAT-MODEL.md` or as an ADR in `docs/adr/`.
 ## References
 
 - `.github/instructions/security-standards.instructions.md`
-- `docs/ARCHITECTURE.md` — system architecture and data flows
+- `docs/dev/ARCHITECTURE.md` — system architecture and data flows
 - STRIDE methodology: Microsoft Threat Modeling
