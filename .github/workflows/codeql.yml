@@ -1,6 +1,10 @@
 name: CodeQL
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   schedule:
     - cron: "45 6 * * 1"  # Weekly CodeQL scan (Mondays at 6:45 AM UTC)
   workflow_dispatch:
@@ -21,6 +25,7 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
+          queries: security-extended
 
       - name: Setup Node
         uses: actions/setup-node@v6
