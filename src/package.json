@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
-    "@cloudflare/workers-types": "^4.20260317.1",
+    "@cloudflare/workers-types": "^4.20260504.1",
     "@eslint/js": "^9.19.0",
     "@vitest/coverage-v8": "^4.1.0",
     "ajv": "^8.18.0",
